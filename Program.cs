@@ -18,6 +18,10 @@ builder.Services.AddHttpClient<LtxVideoClient>((sp, client) =>
 });
 builder.Services.AddScoped<LtxVideoService>();
 
+// NVIDIA Maxine upscaling: shells out to the SDK's VideoEffectsApp.exe per job.
+builder.Services.Configure<MaxineUpscaleOptions>(builder.Configuration.GetSection(MaxineUpscaleOptions.SectionName));
+builder.Services.AddScoped<MaxineUpscaleService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

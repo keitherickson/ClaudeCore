@@ -1,0 +1,158 @@
+# ClaudeCore — Installation & Setup Steps
+
+A running record of everything done to set up this application, updated as we go.
+
+**Last updated:** 2026-06-13
+
+Status legend: ✅ done · ⏳ pending a manual step · ⏸️ deferred · 🔁 per-session
+
+---
+
+## Downloads index
+
+Every external thing that has to be downloaded, in one place.
+
+| What | Link | Used by | Status |
+|---|---|---|---|
+| .NET 10 SDK | https://dotnet.microsoft.com/download/dotnet/10.0 | the web app | ✅ present |
+| Git for Windows | https://git-scm.com/download/win | source control | ✅ present |
+| GitHub CLI (`gh`) | https://cli.github.com/ | push to GitHub | ✅ installed |
+| Claude Code VS Code extension | https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code | editor | ✅ installed |
+| NVIDIA GPU driver (≥ 521.98) | https://www.nvidia.com/download/index.aspx | GPU | ✅ 610.47 |
+| LTX Desktop (bundled engine + weights) | https://ltx.io/ltx-desktop · repo: https://github.com/Lightricks/LTX-Desktop | LTX generation | ✅ installed |
+| LTX-2.3 model weights | https://huggingface.co/Lightricks/LTX-2.3 | LTX generation | ✅ downloaded |
+| Gemma text encoder weights | https://huggingface.co/Lightricks/gemma-3-12b-it-qat-q4_0-unquantized | LTX generation | ✅ downloaded |
+| NVIDIA Maxine Video Effects SDK redistributable | https://www.nvidia.com/broadcast-sdk-resources | upscaling | ✅ installed |
+| Maxine VFX SDK source (samples/exe) | https://github.com/NVIDIA-Maxine/Maxine-VFX-SDK | upscaling | ✅ cloned |
+| VS 2022 C++ Build Tools (fallback) | https://visualstudio.microsoft.com/downloads/ | optional recompile | ◻️ optional |
+
+Deferred items' downloads are listed in section 6.
+
+---
+
+## Quick start — bootstrap installer
+
+`install.ps1` automates this whole setup (prereqs → LTX-2.3 → Maxine → build). It's an **online bootstrapper**: it downloads from official sources and **guides you through the two EULA-gated installs** (LTX Desktop, Maxine redistributable), then continues. Idempotent — safe to re-run.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\ClaudeCore\ClaudeCore\install.ps1
+# flags: -SkipPrereqs (skip winget installs)  -SkipWeights (skip LTX weight download)
+```
+
+Sections 0–5 below are the same steps the installer performs, for reference / manual setup.
+
+---
+
+## 0. Environment
+
+| | |
+|---|---|
+| Machine | Windows 11 Pro (x64) |
+| GPU | NVIDIA GeForce RTX 5090 — 32 GB VRAM (Blackwell), driver 610.47 |
+| App root | `C:\ClaudeCore\ClaudeCore` |
+| Framework | ASP.NET Core MVC on **.NET 10** ([SDK](https://dotnet.microsoft.com/download/dotnet/10.0)) |
+| Repo | https://github.com/keitherickson/ClaudeCore (public) |
+
+---
+
+## 1. Tooling & source control ✅
+
+- **[Git for Windows](https://git-scm.com/download/win)** + identity set globally: `Keith Erickson <keitherickson@hotmail.com>`.
+- **[GitHub CLI](https://cli.github.com/)** installed (`winget install GitHub.cli`) and authenticated (`gh auth login`, account `keitherickson`).
+- Repo initialized on `main`, pushed to GitHub (public). See `GitHubInformation.MD` for the everyday loop.
+- **Version 1** committed + tagged `v1` (commit `be79bd2`).
+- (Editor) **[Claude Code VS Code extension](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code)** installed (`code --install-extension anthropic.claude-code`).
+
+**Everyday save loop:**
+```powershell
+git add -A
+git commit -m "..."
+git push
+```
+
+---
+
+## 2. Feature: LTX-2.3 local video generation ✅
+
+Text-to-video and image-to-video, generated locally and saved to disk. Full detail in **`LTX-Integration.md`**.
+
+**How it works:** ClaudeCore calls a self-hosted LTX-2.3 server (reuses **[LTX Desktop](https://ltx.io/ltx-desktop)**'s bundled Python engine + downloaded weights) over HTTP; the finished `.mp4` is copied to the output folder.
+
+**Weights** (already downloaded by LTX Desktop):
+- [Lightricks/LTX-2.3](https://huggingface.co/Lightricks/LTX-2.3) — video model + spatial upscaler
+- [Lightricks/gemma-3-12b-it-qat-q4_0-unquantized](https://huggingface.co/Lightricks/gemma-3-12b-it-qat-q4_0-unquantized) — text encoder
+
+**Run the LTX server** 🔁 (per session; quit LTX Desktop first — VRAM):
+```powershell
+C:\ClaudeCore\ClaudeCore\tools\run-ltx-server.ps1   # serves http://127.0.0.1:8765
+```
+
+**Config** — `appsettings.json` → `Ltx`: `BaseUrl`, `OutputDirectory` (`C:\Users\keith\Videos\LTX-Generated`), `InputDirectory`, `GenerationTimeoutMinutes`.
+
+**Notes:** local "fast" pipeline; resolution caps duration (1080p→5 s, 720p→10 s, 540p→20 s); 24 fps only. The form pulls this matrix live from the server.
+
+---
+
+## 3. App cleanup ✅
+
+- Removed the scaffold **Home** and **Privacy** pages.
+- Landing page is now **Generate Video** (`{controller=Video}` default route).
+- `Home/Error` kept (backs the global exception handler).
+
+---
+
+## 4. Feature: NVIDIA Maxine video upscaling ✅ (validated end to end)
+
+Super-resolution up to 4K on the RTX 5090 via the **[NVIDIA Maxine Video Effects SDK](https://github.com/NVIDIA-Maxine/Maxine-VFX-SDK)** (free SDK; Blackwell supported). ClaudeCore shells out to the SDK's `VideoEffectsApp.exe` per job.
+
+**Setup performed:**
+1. SDK source cloned to `C:\ClaudeCore\maxine-vfx` (includes the prebuilt `VideoEffectsApp.exe`). No compiling needed.
+2. [Video Effects SDK redistributable](https://www.nvidia.com/broadcast-sdk-resources) installed (EULA accepted) to `C:\Program Files\NVIDIA Corporation\NVIDIA Video Effects` — provides the AI models + runtime DLLs.
+3. **⚠️ Gotcha — models must live in a WRITABLE folder.** TensorRT builds/caches the engine on first run, and `Program Files` is read-only without admin (fails as `NVCV_ERR_FILE` "file could not be found"). Fix: copy the models out and point the app there:
+   ```powershell
+   robocopy "C:\Program Files\NVIDIA Corporation\NVIDIA Video Effects\models" "C:\ClaudeCore\maxine-models" /E
+   ```
+4. .NET wrapper: `MaxineUpscaleService`, `MaxineUpscaleOptions`, `UpscaleController`, `Views/Upscale/Index.cshtml`; nav link + `appsettings.json` → `Maxine`.
+
+**Validated:** image SR (1080p→4K), 100-frame video SR (~5 s), and full `/Upscale` upload→4K download. `/Upscale` health badge shows "SDK ready".
+
+**Config** — `appsettings.json` → `Maxine`:
+- `ExecutablePath` `…\maxine-vfx\samples\VideoEffectsApp\VideoEffectsApp.exe`
+- `ModelDir` **`C:\ClaudeCore\maxine-models`** (the writable copy)
+- `SdkBinDir` `C:\Program Files\NVIDIA Corporation\NVIDIA Video Effects` (DLLs, added to PATH)
+- `OpenCvBinDir`, `OutputDirectory` (`…\LTX-Generated\upscaled`), `InputDirectory`, `Codec` (`avc1` = H.264, browser-friendly), `TimeoutMinutes`
+
+**Effects / limits:** `SuperRes` (model, mode 0=compressed / 1=clean) needs output height = an **integer 2×/3×/4×** of the source (e.g. 1080p→2160 only); `Upscale` (fast, `--strength`) supports 1.33/1.5/2/3/4×; `ArtifactReduction`.
+
+**Optional/insurance:** [VS 2022 C++ Build Tools](https://visualstudio.microsoft.com/downloads/) were installed as a fallback in case the prebuilt exe ever needs recompiling — turned out unnecessary.
+
+---
+
+## 5. Running the application 🔁
+
+```powershell
+# 1. (for generation) start the LTX server in its own window — LTX Desktop closed
+C:\ClaudeCore\ClaudeCore\tools\run-ltx-server.ps1
+
+# 2. start the web app
+dotnet run --project C:\ClaudeCore\ClaudeCore\ClaudeCore.csproj
+# then open the URL it prints (dev: http://127.0.0.1:5080 when ASPNETCORE_URLS is set)
+```
+
+Pages: **Generate Video** (`/Video`, landing) · **Upscale Video** (`/Upscale`).
+
+> The Maxine upscaler runs in-process (shells out to the exe per job) — no separate server to start.
+
+---
+
+## 6. Deferred / future ⏸️
+
+- **SeedVR2 upscaling** — paused (Blackwell + ~80 GB VRAM blockers on the official repo). Links if revisited: source [ByteDance-Seed/SeedVR](https://github.com/ByteDance-Seed/SeedVR), weights [ByteDance-Seed/SeedVR2-3B](https://huggingface.co/ByteDance-Seed/SeedVR2-3B). Maxine (section 4) chosen instead.
+
+---
+
+## Change log
+
+- **2026-06-13** — Initial setup: git/GitHub + CLI, .NET app to GitHub (Version 1). LTX-2.3 generation integrated. Home/Privacy removed; Video is landing page. Resolution-aware duration/fps. NVIDIA Maxine upscaling wrapper added. Document created; added a Downloads index with links to every prerequisite.
+- **2026-06-13** — Maxine SDK redistributable installed; **validated upscaling end to end** (image + video + `/Upscale` pipeline) on the RTX 5090. Found the writable-models-dir gotcha (copied models to `C:\ClaudeCore\maxine-models`); added configurable output `Codec` (avc1). Section 4 marked ✅.
+- **2026-06-13** — Built the **`install.ps1` bootstrap installer** (prereqs → LTX-2.3 → Maxine → build/configure), including the upscaling setup. Dry-run validated on this machine (all steps detected/built, "Setup complete"). Added a Quick start section; moved the installer out of Deferred.

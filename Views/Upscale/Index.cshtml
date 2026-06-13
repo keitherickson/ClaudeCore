@@ -1,0 +1,151 @@
+@{
+    ViewData["Title"] = "Upscale Video (NVIDIA Maxine)";
+}
+
+<div class="row">
+    <div class="col-lg-7">
+        <h1 class="h3 mb-1">Upscale Video</h1>
+        <p class="text-muted">
+            NVIDIA Maxine Video Effects on your RTX 5090 — super-resolution up to 4K.
+            <span id="mx-status" class="badge bg-secondary">checking…</span>
+        </p>
+
+        <form id="up-form">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Source video</label>
+                <input type="file" name="video" id="video" class="form-control" accept="video/*" required />
+            </div>
+
+            <div class="row g-3">
+                <div class="col-6 col-md-4">
+                    <label class="form-label">Effect</label>
+                    <select name="effect" id="effect" class="form-select">
+                        <option value="SuperRes" selected>Super Resolution (model)</option>
+                        <option value="Upscale">Upscaler (fast)</option>
+                        <option value="ArtifactReduction">Artifact Reduction</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-4">
+                    <label class="form-label">Output height</label>
+                    <select name="resolution" id="resolution" class="form-select">
+                        <option value="1080">1080p</option>
+                        <option value="1440">1440p</option>
+                        <option value="2160" selected>2160p (4K)</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-4" id="mode-wrap">
+                    <label class="form-label">Mode</label>
+                    <select name="mode" id="mode" class="form-select">
+                        <option value="0" selected>0 — compressed source</option>
+                        <option value="1">1 — clean source</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-4 d-none" id="strength-wrap">
+                    <label class="form-label">Sharpening</label>
+                    <input type="number" name="strength" id="strength" class="form-control" min="0" max="1" step="0.1" value="0.4" />
+                </div>
+            </div>
+
+            <button type="submit" id="up-btn" class="btn btn-primary mt-3">Upscale</button>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div id="busy-card" class="card d-none mt-4 mt-lg-0">
+            <div class="card-body">
+                <h2 class="h6 card-title mb-2">Upscaling…</h2>
+                <div class="progress" role="progressbar">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                </div>
+                <p class="text-muted small mt-2 mb-0">This runs frame-by-frame and can take a while for long clips.</p>
+            </div>
+        </div>
+
+        <div id="result-card" class="card d-none mt-4 mt-lg-0">
+            <div class="card-body">
+                <h2 class="h6 card-title">Result</h2>
+                <video id="result-video" class="w-100 rounded border" controls></video>
+                <p id="result-path" class="text-muted small mt-2 mb-1"></p>
+                <a id="result-download" class="btn btn-sm btn-outline-secondary" download>Download .mp4</a>
+            </div>
+        </div>
+
+        <div id="error-card" class="alert alert-danger d-none mt-4 mt-lg-0" role="alert"></div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    const form = document.getElementById("up-form");
+    const btn = document.getElementById("up-btn");
+    const statusBadge = document.getElementById("mx-status");
+    const effectSel = document.getElementById("effect");
+    const modeWrap = document.getElementById("mode-wrap");
+    const strengthWrap = document.getElementById("strength-wrap");
+    const busyCard = document.getElementById("busy-card");
+    const resultCard = document.getElementById("result-card");
+    const resultVideo = document.getElementById("result-video");
+    const resultPath = document.getElementById("result-path");
+    const resultDownload = document.getElementById("result-download");
+    const errorCard = document.getElementById("error-card");
+
+    function syncEffectFields() {
+        const e = effectSel.value;
+        // SuperRes/ArtifactReduction use --mode; Upscale uses --strength.
+        modeWrap.classList.toggle("d-none", e === "Upscale");
+        strengthWrap.classList.toggle("d-none", e !== "Upscale");
+    }
+    effectSel.addEventListener("change", syncEffectFields);
+    syncEffectFields();
+
+    async function checkHealth() {
+        try {
+            const r = await fetch("/Upscale/Health");
+            const d = await r.json();
+            if (d.ok) {
+                statusBadge.className = "badge bg-success";
+                statusBadge.textContent = "SDK ready";
+            } else {
+                statusBadge.className = "badge bg-warning text-dark";
+                statusBadge.textContent = "SDK not installed";
+                statusBadge.title = d.error || "";
+            }
+        } catch {
+            statusBadge.className = "badge bg-danger";
+            statusBadge.textContent = "unavailable";
+        }
+    }
+
+    form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        errorCard.classList.add("d-none");
+        resultCard.classList.add("d-none");
+        busyCard.classList.remove("d-none");
+        btn.disabled = true;
+        try {
+            const data = new FormData(form);
+            const resp = await fetch("/Upscale/Run", { method: "POST", body: data });
+            const result = await resp.json();
+            if (resp.ok && result.ok) {
+                const url = "/Upscale/Download?name=" + encodeURIComponent(result.fileName);
+                resultVideo.src = url;
+                resultDownload.href = url;
+                resultPath.textContent = `${result.effect} · saved to ${result.savedPath}`;
+                resultCard.classList.remove("d-none");
+            } else {
+                throw new Error(result.error || ("HTTP " + resp.status));
+            }
+        } catch (err) {
+            errorCard.textContent = "Upscale failed: " + err.message;
+            errorCard.classList.remove("d-none");
+        } finally {
+            busyCard.classList.add("d-none");
+            btn.disabled = false;
+        }
+    });
+
+    checkHealth();
+})();
+</script>
+}
