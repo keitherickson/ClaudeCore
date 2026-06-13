@@ -1,0 +1,34 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# .NET
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# ASP.NET scaffolding
+ScaffoldingReadMe.txt
+
+# User-specific / secrets (keep local-only config out of the repo)
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.key
+
+# OS junk
+Thumbs.db
+.DS_Store
