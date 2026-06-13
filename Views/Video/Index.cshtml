@@ -71,6 +71,31 @@
                 <label class="form-check-label" for="audio">Generate synchronized audio</label>
             </div>
 
+            <hr class="my-3" />
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="upscale" value="true" id="upscale" />
+                <label class="form-check-label fw-semibold" for="upscale">
+                    Upscale with NVIDIA Maxine <span class="text-muted fw-normal">(saves an upscaled copy too)</span>
+                </label>
+            </div>
+            <div class="row g-3 mt-0 d-none" id="upscale-opts">
+                <div class="col-6 col-md-4">
+                    <label class="form-label">Upscale factor</label>
+                    <select name="upscaleFactor" id="upscaleFactor" class="form-select">
+                        <option value="2" selected>2&times;</option>
+                        <option value="3">3&times;</option>
+                        <option value="4">4&times;</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-4">
+                    <label class="form-label">Source quality</label>
+                    <select name="upscaleMode" id="upscaleMode" class="form-select">
+                        <option value="0" selected>0 — compressed</option>
+                        <option value="1">1 — clean</option>
+                    </select>
+                </div>
+            </div>
+
             <button type="submit" id="gen-btn" class="btn btn-primary mt-3">Generate</button>
         </form>
     </div>
@@ -95,6 +120,17 @@
             </div>
         </div>
 
+        <div id="upscaled-card" class="card d-none mt-3">
+            <div class="card-body">
+                <h2 class="h6 card-title">Upscaled (NVIDIA Maxine)</h2>
+                <video id="upscaled-video" class="w-100 rounded border" controls></video>
+                <p id="upscaled-path" class="text-muted small mt-2 mb-1"></p>
+                <a id="upscaled-download" class="btn btn-sm btn-outline-secondary" download>Download upscaled .mp4</a>
+            </div>
+        </div>
+
+        <div id="upscale-warning" class="alert alert-warning d-none mt-3" role="alert"></div>
+
         <div id="error-card" class="alert alert-danger d-none mt-4 mt-lg-0" role="alert"></div>
     </div>
 </div>
@@ -113,6 +149,17 @@
     const resultPath = document.getElementById("result-path");
     const resultDownload = document.getElementById("result-download");
     const errorCard = document.getElementById("error-card");
+    const upscaleChk = document.getElementById("upscale");
+    const upscaleOpts = document.getElementById("upscale-opts");
+    const upscaledCard = document.getElementById("upscaled-card");
+    const upscaledVideo = document.getElementById("upscaled-video");
+    const upscaledPath = document.getElementById("upscaled-path");
+    const upscaledDownload = document.getElementById("upscaled-download");
+    const upscaleWarning = document.getElementById("upscale-warning");
+
+    upscaleChk.addEventListener("change", function () {
+        upscaleOpts.classList.toggle("d-none", !upscaleChk.checked);
+    });
 
     let pollTimer = null;
 
@@ -206,6 +253,10 @@
             if (p.currentStep != null && p.totalSteps != null) {
                 phase += ` (step ${p.currentStep}/${p.totalSteps})`;
             }
+            // Generation done but request still pending => the upscale phase is running.
+            if (upscaleChk.checked && (p.status === "complete" || p.status === "idle") && pct >= 100) {
+                phase = `Generation complete — upscaling ${document.getElementById("upscaleFactor").value}x…`;
+            }
             progressPhase.textContent = phase;
         } catch { /* ignore transient poll errors */ }
     }
@@ -214,6 +265,8 @@
         e.preventDefault();
         errorCard.classList.add("d-none");
         resultCard.classList.add("d-none");
+        upscaledCard.classList.add("d-none");
+        upscaleWarning.classList.add("d-none");
         progressCard.classList.remove("d-none");
         progressBar.style.width = "0%";
         progressBar.textContent = "0%";
@@ -225,6 +278,7 @@
         try {
             const data = new FormData(form);
             if (!document.getElementById("audio").checked) data.set("audio", "false");
+            if (!upscaleChk.checked) data.set("upscale", "false");
 
             const resp = await fetch("/Video/Generate", { method: "POST", body: data });
             const result = await resp.json();
@@ -237,6 +291,18 @@
                 resultDownload.href = url;
                 resultPath.textContent = `${result.mode} · saved to ${result.savedPath}`;
                 resultCard.classList.remove("d-none");
+
+                // Upscaled copy (if requested)
+                if (result.upscaled) {
+                    const uUrl = "/Upscale/Download?name=" + encodeURIComponent(result.upscaled.fileName);
+                    upscaledVideo.src = uUrl;
+                    upscaledDownload.href = uUrl;
+                    upscaledPath.textContent = `${result.upscaled.factor}x → ${result.upscaled.height}p · saved to ${result.upscaled.savedPath}`;
+                    upscaledCard.classList.remove("d-none");
+                } else if (result.upscaleError) {
+                    upscaleWarning.textContent = "Video generated, but upscaling failed: " + result.upscaleError;
+                    upscaleWarning.classList.remove("d-none");
+                }
             } else {
                 throw new Error(result.error || ("HTTP " + resp.status));
             }

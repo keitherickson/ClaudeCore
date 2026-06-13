@@ -91,6 +91,8 @@ C:\ClaudeCore\ClaudeCore\tools\run-ltx-server.ps1   # serves http://127.0.0.1:87
 
 **Notes:** local "fast" pipeline; resolution caps duration (1080p→5 s, 720p→10 s, 540p→20 s); 24 fps only. The form pulls this matrix live from the server.
 
+**Integrated upscaling:** the Generate form has an optional **"Also upscale with NVIDIA Maxine"** toggle (factor 2×/3×/4×). When on, it generates + saves the original, reads its real height (`VideoProbe`), then runs Maxine SuperRes at `factor × height` and saves an **upscaled copy** too (in `…\LTX-Generated\upscaled`). Both are shown/downloadable. Requires the Maxine SDK (section 4).
+
 ---
 
 ## 3. App cleanup ✅
@@ -156,3 +158,4 @@ Pages: **Generate Video** (`/Video`, landing) · **Upscale Video** (`/Upscale`).
 - **2026-06-13** — Initial setup: git/GitHub + CLI, .NET app to GitHub (Version 1). LTX-2.3 generation integrated. Home/Privacy removed; Video is landing page. Resolution-aware duration/fps. NVIDIA Maxine upscaling wrapper added. Document created; added a Downloads index with links to every prerequisite.
 - **2026-06-13** — Maxine SDK redistributable installed; **validated upscaling end to end** (image + video + `/Upscale` pipeline) on the RTX 5090. Found the writable-models-dir gotcha (copied models to `C:\ClaudeCore\maxine-models`); added configurable output `Codec` (avc1). Section 4 marked ✅.
 - **2026-06-13** — Built the **`install.ps1` bootstrap installer** (prereqs → LTX-2.3 → Maxine → build/configure), including the upscaling setup. Dry-run validated on this machine (all steps detected/built, "Setup complete"). Added a Quick start section; moved the installer out of Deferred.
+- **2026-06-13** — **Integrated upscaling into the Generate flow**: optional toggle generates + saves the original, then auto-upscales (Maxine SuperRes, factor 2/3/4×) and saves an upscaled copy. Added `VideoProbe` (mp4 height reader) to pick a valid factor. Validated end to end (540p generate + 2× → original 0.5 MB + upscaled 22.9 MB in ~139 s).

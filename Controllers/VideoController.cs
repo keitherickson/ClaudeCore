@@ -7,11 +7,13 @@ namespace ClaudeCore.Controllers;
 public class VideoController : Controller
 {
     private readonly LtxVideoService _service;
+    private readonly MaxineUpscaleService _upscaler;
     private readonly ILogger<VideoController> _logger;
 
-    public VideoController(LtxVideoService service, ILogger<VideoController> logger)
+    public VideoController(LtxVideoService service, MaxineUpscaleService upscaler, ILogger<VideoController> logger)
     {
         _service = service;
+        _upscaler = upscaler;
         _logger = logger;
     }
 
@@ -75,6 +77,9 @@ public class VideoController : Controller
         [FromForm] string? cameraMotion,
         [FromForm] string? negativePrompt,
         [FromForm] bool audio,
+        [FromForm] bool upscale,
+        [FromForm] int upscaleFactor,
+        [FromForm] int upscaleMode,
         IFormFile? image,
         CancellationToken ct)
     {
@@ -100,13 +105,43 @@ public class VideoController : Controller
                 ImagePath = imagePath,
             };
 
+            // 1. Generate + save the original.
             var result = await _service.GenerateAsync(request, ct);
+
+            // 2. Optionally upscale the saved original and save an upscaled copy.
+            object? upscaled = null;
+            string? upscaleError = null;
+            if (upscale)
+            {
+                try
+                {
+                    if (!_upscaler.IsReady(out var problem))
+                        throw new InvalidOperationException(problem ?? "Upscaler is not ready.");
+
+                    var srcHeight = VideoProbe.TryGetHeight(result.SavedPath)
+                        ?? throw new InvalidOperationException("Could not read the generated video's height.");
+
+                    var factor = upscaleFactor is 2 or 3 or 4 ? upscaleFactor : 2;
+                    var target = srcHeight * factor; // exact 2x/3x/4x => valid SuperRes engine
+
+                    var up = await _upscaler.UpscaleAsync(result.SavedPath, "SuperRes", target, upscaleMode, 0f, ct);
+                    upscaled = new { fileName = up.FileName, savedPath = up.SavedPath, factor, height = target };
+                }
+                catch (Exception ex)
+                {
+                    upscaleError = ex.Message;
+                    _logger.LogError(ex, "Integrated upscale failed");
+                }
+            }
+
             return Json(new
             {
                 ok = true,
                 fileName = result.FileName,
                 savedPath = result.SavedPath,
                 mode = imagePath is null ? "text-to-video" : "image-to-video",
+                upscaled,
+                upscaleError,
             });
         }
         catch (LtxServerException ex)
