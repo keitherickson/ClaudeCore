@@ -6,6 +6,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 
+// UI branding (display name) from the "Branding" config section.
+builder.Services.Configure<BrandingOptions>(builder.Configuration.GetSection(BrandingOptions.SectionName));
+
 // LTX-2 local video generation: bind options, register the typed HttpClient
 // (with a generous timeout since /api/generate blocks until the video is done),
 // and the orchestration service.
