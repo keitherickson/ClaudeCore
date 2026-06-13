@@ -1,7 +1,22 @@
+using ClaudeCore.Services;
+using Microsoft.Extensions.Options;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+
+// LTX-2 local video generation: bind options, register the typed HttpClient
+// (with a generous timeout since /api/generate blocks until the video is done),
+// and the orchestration service.
+builder.Services.Configure<LtxVideoOptions>(builder.Configuration.GetSection(LtxVideoOptions.SectionName));
+builder.Services.AddHttpClient<LtxVideoClient>((sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<LtxVideoOptions>>().Value;
+    client.BaseAddress = new Uri(opts.BaseUrl);
+    client.Timeout = TimeSpan.FromMinutes(opts.GenerationTimeoutMinutes);
+});
+builder.Services.AddScoped<LtxVideoService>();
 
 var app = builder.Build();
 
@@ -22,7 +37,7 @@ app.MapStaticAssets();
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}")
+    pattern: "{controller=Video}/{action=Index}/{id?}")
     .WithStaticAssets();
 
 

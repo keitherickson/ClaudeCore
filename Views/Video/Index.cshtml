@@ -1,0 +1,257 @@
+@{
+    ViewData["Title"] = "Generate Video (LTX-2.3)";
+}
+
+<div class="row">
+    <div class="col-lg-7">
+        <h1 class="h3 mb-1">Generate Video</h1>
+        <p class="text-muted">
+            Local LTX-2.3 on your RTX 5090 — text-to-video, or upload an image for image-to-video.
+            <span id="ltx-status" class="badge bg-secondary">checking server…</span>
+        </p>
+
+        <form id="gen-form">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Prompt</label>
+                <textarea name="prompt" class="form-control" rows="3" required
+                          placeholder="A red fox trotting through a snowy forest, cinematic lighting"></textarea>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Starting image <span class="text-muted fw-normal">(optional — enables image-to-video)</span></label>
+                <input type="file" name="image" id="image" class="form-control" accept="image/*" />
+            </div>
+
+            <div class="row g-3">
+                <div class="col-6 col-md-3">
+                    <label class="form-label">Resolution</label>
+                    <select name="resolution" id="resolution" class="form-select"></select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label">Duration</label>
+                    <select name="duration" id="duration" class="form-select"></select>
+                    <div class="form-text">Longer clips need lower resolution.</div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label">FPS</label>
+                    <select name="fps" id="fps" class="form-select"></select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label">Aspect</label>
+                    <select name="aspectRatio" class="form-select">
+                        <option value="16:9" selected>16:9</option>
+                        <option value="9:16">9:16</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row g-3 mt-0">
+                <div class="col-6 col-md-3">
+                    <label class="form-label">Camera motion</label>
+                    <select name="cameraMotion" class="form-select">
+                        <option value="none" selected>None</option>
+                        <option value="static">Static</option>
+                        <option value="dolly_in">Dolly in</option>
+                        <option value="dolly_out">Dolly out</option>
+                        <option value="dolly_left">Dolly left</option>
+                        <option value="dolly_right">Dolly right</option>
+                        <option value="jib_up">Jib up</option>
+                        <option value="jib_down">Jib down</option>
+                        <option value="focus_shift">Focus shift</option>
+                    </select>
+                </div>
+                <div class="col-md-9">
+                    <label class="form-label">Negative prompt <span class="text-muted">(optional)</span></label>
+                    <input type="text" name="negativePrompt" class="form-control" placeholder="blurry, distorted, low quality" />
+                </div>
+            </div>
+
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" name="audio" value="true" id="audio" />
+                <label class="form-check-label" for="audio">Generate synchronized audio</label>
+            </div>
+
+            <button type="submit" id="gen-btn" class="btn btn-primary mt-3">Generate</button>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div id="progress-card" class="card d-none mt-4 mt-lg-0">
+            <div class="card-body">
+                <h2 class="h6 card-title mb-2">Generating…</h2>
+                <div class="progress" role="progressbar" style="height: 1.25rem;">
+                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%">0%</div>
+                </div>
+                <p id="progress-phase" class="text-muted small mt-2 mb-0"></p>
+            </div>
+        </div>
+
+        <div id="result-card" class="card d-none mt-4 mt-lg-0">
+            <div class="card-body">
+                <h2 class="h6 card-title">Result</h2>
+                <video id="result-video" class="w-100 rounded border" controls></video>
+                <p id="result-path" class="text-muted small mt-2 mb-1"></p>
+                <a id="result-download" class="btn btn-sm btn-outline-secondary" download>Download .mp4</a>
+            </div>
+        </div>
+
+        <div id="error-card" class="alert alert-danger d-none mt-4 mt-lg-0" role="alert"></div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    const form = document.getElementById("gen-form");
+    const btn = document.getElementById("gen-btn");
+    const statusBadge = document.getElementById("ltx-status");
+    const progressCard = document.getElementById("progress-card");
+    const progressBar = document.getElementById("progress-bar");
+    const progressPhase = document.getElementById("progress-phase");
+    const resultCard = document.getElementById("result-card");
+    const resultVideo = document.getElementById("result-video");
+    const resultPath = document.getElementById("result-path");
+    const resultDownload = document.getElementById("result-download");
+    const errorCard = document.getElementById("error-card");
+
+    let pollTimer = null;
+
+    // --- Capability matrix: which durations/fps are valid per resolution ---
+    // Pulled live from the server; this is the offline fallback (LTX 2.3 Fast).
+    const FALLBACK_MATRIX = {
+        "540p": { "24": [5, 6, 8, 10, 20] },
+        "720p": { "24": [5, 6, 8, 10] },
+        "1080p": { "24": [5] }
+    };
+    let matrix = FALLBACK_MATRIX;
+
+    const resSel = document.getElementById("resolution");
+    const fpsSel = document.getElementById("fps");
+    const durSel = document.getElementById("duration");
+
+    function fillSelect(sel, values, fmt) {
+        const prev = sel.value;
+        sel.innerHTML = "";
+        for (const v of values) {
+            const o = document.createElement("option");
+            o.value = v;
+            o.textContent = fmt ? fmt(v) : v;
+            sel.appendChild(o);
+        }
+        if (values.map(String).includes(prev)) sel.value = prev; // preserve choice if still valid
+    }
+
+    function populateDurations() {
+        const list = ((matrix[resSel.value] || {})[fpsSel.value] || []).slice().sort((a, b) => a - b);
+        fillSelect(durSel, list, v => v + " s");
+    }
+
+    function populateFps() {
+        const list = Object.keys(matrix[resSel.value] || {}).sort((a, b) => a - b);
+        fillSelect(fpsSel, list);
+        populateDurations();
+    }
+
+    function populateResolutions() {
+        const resos = Object.keys(matrix).sort((a, b) => parseInt(a) - parseInt(b));
+        fillSelect(resSel, resos);
+        if (matrix["720p"]) resSel.value = "720p"; // default that allows clips longer than 5s
+        populateFps();
+    }
+
+    async function loadSpecs() {
+        try {
+            const r = await fetch("/Video/Specs");
+            const data = await r.json();
+            const models = data.local_models || [];
+            const fast = models.find(m => m.pipeline === "fast") || models[0];
+            const srd = fast && fast.spec && fast.spec.supported_resolutions_durations;
+            if (srd) {
+                const m = {};
+                for (const res of Object.keys(srd)) m[res] = srd[res].fps_to_durations || {};
+                if (Object.keys(m).length) matrix = m;
+            }
+        } catch { /* keep fallback */ }
+        populateResolutions();
+    }
+
+    resSel.addEventListener("change", populateFps);
+    fpsSel.addEventListener("change", populateDurations);
+
+    async function checkHealth() {
+        try {
+            const r = await fetch("/Video/Health");
+            const d = await r.json();
+            if (d.ok && d.health) {
+                statusBadge.className = "badge bg-success";
+                statusBadge.textContent = "server online";
+            } else {
+                statusBadge.className = "badge bg-danger";
+                statusBadge.textContent = "server offline";
+            }
+        } catch {
+            statusBadge.className = "badge bg-danger";
+            statusBadge.textContent = "server offline";
+        }
+    }
+
+    async function poll() {
+        try {
+            const r = await fetch("/Video/Progress");
+            const p = await r.json();
+            const pct = Math.max(0, Math.min(100, p.progress || 0));
+            progressBar.style.width = pct + "%";
+            progressBar.textContent = pct + "%";
+            let phase = p.phase || p.status || "";
+            if (p.currentStep != null && p.totalSteps != null) {
+                phase += ` (step ${p.currentStep}/${p.totalSteps})`;
+            }
+            progressPhase.textContent = phase;
+        } catch { /* ignore transient poll errors */ }
+    }
+
+    form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        errorCard.classList.add("d-none");
+        resultCard.classList.add("d-none");
+        progressCard.classList.remove("d-none");
+        progressBar.style.width = "0%";
+        progressBar.textContent = "0%";
+        progressPhase.textContent = "submitting…";
+        btn.disabled = true;
+
+        pollTimer = setInterval(poll, 1000);
+
+        try {
+            const data = new FormData(form);
+            if (!document.getElementById("audio").checked) data.set("audio", "false");
+
+            const resp = await fetch("/Video/Generate", { method: "POST", body: data });
+            const result = await resp.json();
+
+            if (resp.ok && result.ok) {
+                progressBar.style.width = "100%";
+                progressBar.textContent = "100%";
+                const url = "/Video/Download?name=" + encodeURIComponent(result.fileName);
+                resultVideo.src = url;
+                resultDownload.href = url;
+                resultPath.textContent = `${result.mode} · saved to ${result.savedPath}`;
+                resultCard.classList.remove("d-none");
+            } else {
+                throw new Error(result.error || ("HTTP " + resp.status));
+            }
+        } catch (err) {
+            errorCard.textContent = "Generation failed: " + err.message;
+            errorCard.classList.remove("d-none");
+        } finally {
+            clearInterval(pollTimer);
+            progressCard.classList.add("d-none");
+            btn.disabled = false;
+        }
+    });
+
+    checkHealth();
+    loadSpecs();
+})();
+</script>
+}

@@ -29,6 +29,11 @@ secrets.json
 *.pfx
 *.key
 
+# LTX server scratch logs / pid files from smoke tests
+tools/*.log
+tools/*.log.err
+tools/*-pid.txt
+
 # OS junk
 Thumbs.db
 .DS_Store

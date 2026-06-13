@@ -6,16 +6,8 @@ namespace ClaudeCore.Controllers;
 
 public class HomeController : Controller
 {
-    public IActionResult Index()
-    {
-        return View();
-    }
-
-    public IActionResult Privacy()
-    {
-        return View();
-    }
-
+    // Index and Privacy were removed; the app lands on Video/Index.
+    // Error is kept because it backs the global exception handler (/Home/Error).
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
     public IActionResult Error()
     {
