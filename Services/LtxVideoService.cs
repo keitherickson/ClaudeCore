@@ -37,9 +37,6 @@ public sealed class LtxVideoService
 
     public Task<string> GetHealthRawAsync(CancellationToken ct = default) => _client.GetHealthRawAsync(ct);
 
-    /// <summary>Requests cancellation of the in-progress generation. Returns the server's raw status JSON.</summary>
-    public Task<string> CancelGenerationAsync(CancellationToken ct = default) => _client.CancelAsync(ct);
-
     /// <summary>Saves an uploaded conditioning image to a local path the server can open, and returns that path.</summary>
     public async Task<string> StageImageAsync(IFormFile image, CancellationToken ct = default)
     {
@@ -79,8 +76,6 @@ public sealed class LtxVideoService
     public async Task<VideoResult> GenerateAsync(GenerateVideoRequest request, CancellationToken ct = default)
     {
         var response = await _client.GenerateAsync(request, ct);
-        if (response.Status == "cancelled")
-            throw new LtxGenerationCancelledException();
         if (response.Status != "complete" || string.IsNullOrEmpty(response.VideoPath))
             throw new LtxServerException(500, $"Generation did not complete (status={response.Status}).");
 

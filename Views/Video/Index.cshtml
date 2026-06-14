@@ -398,7 +398,10 @@
                 clearInterval(timer);
                 // /health answers before the server is fully ready for generation,
                 // so hold "restarting…" a bit longer (Ltx:RestartReadyDelayMs) first.
-                setTimeout(() => setLtxStatus("bg-success", "server online"), @restartReadyDelayMs);
+                setTimeout(() => {
+                    setLtxStatus("bg-success", "server online");
+                    genNotice.classList.add("d-none"); // clear the "cancelled — restarting" notice
+                }, @restartReadyDelayMs);
             } else if (++tries > 60) {
                 setLtxStatus("bg-danger", "server offline");
                 clearInterval(timer);
@@ -484,9 +487,6 @@
 
             if (cancelRequested) {
                 // User already cancelled; widget removed and notice shown — ignore the late result.
-            } else if (result.cancelled) {
-                genNotice.textContent = "Generation cancelled.";
-                genNotice.classList.remove("d-none");
             } else if (resp.ok && result.ok) {
                 progressBar.style.width = "100%";
                 progressBar.textContent = "100%";

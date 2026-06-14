@@ -226,10 +226,6 @@ public class VideoController : Controller
                 upscaleError,
             });
         }
-        catch (LtxGenerationCancelledException)
-        {
-            return Json(new { ok = false, cancelled = true });
-        }
         catch (LtxServerException ex)
         {
             _logger.LogError(ex, "LTX generation failed");
