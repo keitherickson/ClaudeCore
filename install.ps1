@@ -5,10 +5,10 @@
 
 .DESCRIPTION
     Provisions everything ClaudeCore needs on a Windows + NVIDIA RTX machine:
-      1. Prerequisite tooling (.NET SDK, git, GitHub CLI)
+      1. Prerequisite tooling (.NET SDK, git, GitHub CLI, ffmpeg)
       2. LTX-2.3 local video generation (engine + model weights)
       3. NVIDIA Maxine video upscaling (SDK repo + models, writable copy)
-      4. Build and configure the ClaudeCore app
+      4. Build and configure the ClaudeCore app (incl. ffmpeg path for "Play faster")
 
     This is an online bootstrapper: it downloads from official sources rather
     than embedding ~100 GB of weights. A few components are EULA-gated downloads
@@ -55,6 +55,19 @@ function Note($m)   { Write-Host "  [info] $m"  -ForegroundColor Gray }
 function Warn($m)   { Write-Host "  [warn] $m"  -ForegroundColor Yellow }
 function Action($m) { Write-Host "  [ACTION NEEDED] $m" -ForegroundColor Magenta }
 function Have($cmd) { $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue) }
+
+# Locate ffmpeg.exe: prefer PATH, then the winget package folder (where the
+# running app can't see PATH changes, so an absolute path is what we configure).
+function Find-Ffmpeg {
+    $cmd = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $pkgs = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    if (Test-Path $pkgs) {
+        $f = Get-ChildItem $pkgs -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($f) { return $f.FullName }
+    }
+    return $null
+}
 
 function Wait-ForPath {
     param([string]$Path, [string]$What, [string]$Url)
@@ -122,6 +135,7 @@ if ($SkipPrereqs) {
     Ensure-Winget "Microsoft.DotNet.SDK.10" "dotnet" ".NET 10 SDK"   "https://dotnet.microsoft.com/download/dotnet/10.0"
     Ensure-Winget "Git.Git"                 "git"    "Git for Windows" "https://git-scm.com/download/win"
     Ensure-Winget "GitHub.cli"              "gh"     "GitHub CLI"      "https://cli.github.com/"
+    Ensure-Winget "Gyan.FFmpeg"             "ffmpeg" "ffmpeg"          "https://www.gyan.dev/ffmpeg/builds/"
 }
 
 # ==========================================================================
@@ -224,6 +238,30 @@ try {
     }
     Ok "Output folders ready."
     Note "appsettings.json -> Maxine: ModelDir='$MaxineModels', SdkBinDir='$sdkInstall'."
+
+    # Configure VideoSpeed:FfmpegPath ("Play faster" re-time). The winget path is
+    # version-specific, so resolve it now and write it into appsettings.json.
+    $ffmpeg = Find-Ffmpeg
+    if ($ffmpeg) {
+        $cfg     = Join-Path $AppRoot 'appsettings.json'
+        $json    = Get-Content $cfg -Raw
+        $pattern = '("FfmpegPath"\s*:\s*")[^"]*(")'
+        if ([regex]::IsMatch($json, $pattern)) {
+            $escaped = $ffmpeg -replace '\\', '\\'   # JSON-escape backslashes
+            $new = [regex]::Replace($json, $pattern, { param($m) $m.Groups[1].Value + $escaped + $m.Groups[2].Value })
+            if ($new -ne $json) {
+                Set-Content -Path $cfg -Value $new -Encoding UTF8 -NoNewline
+                Ok "Configured VideoSpeed:FfmpegPath = $ffmpeg"
+            } else {
+                Ok "VideoSpeed:FfmpegPath already current."
+            }
+        } else {
+            Warn "VideoSpeed section not found in appsettings.json; add VideoSpeed:FfmpegPath = $ffmpeg manually."
+        }
+    } else {
+        Warn "ffmpeg not found; 'Play faster' stays disabled until ffmpeg is installed and VideoSpeed:FfmpegPath is set."
+        $failures.Add("ffmpeg not installed")
+    }
 }
 finally { Pop-Location }
 
@@ -243,5 +281,5 @@ Write-Host "  1. (generation) start the LTX server with LTX Desktop closed:" -Fo
 Write-Host "       $AppRoot\tools\run-ltx-server.ps1" -ForegroundColor Cyan
 Write-Host "  2. start the app:" -ForegroundColor Cyan
 Write-Host "       dotnet run --project `"$AppRoot\ClaudeCore.csproj`"" -ForegroundColor Cyan
-Write-Host "  3. open the URL it prints. Pages: /Video (generate), /Upscale (Maxine 4K)." -ForegroundColor Cyan
+Write-Host "  3. open the URL it prints. Pages: /Video (generate), /Upscale (Maxine 4K), /Admin (health)." -ForegroundColor Cyan
 Write-Host "  See InstallationSteps.md for full details and the Downloads index." -ForegroundColor Cyan

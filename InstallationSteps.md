@@ -33,7 +33,7 @@ Deferred items' downloads are listed in section 6.
 
 ## Quick start — bootstrap installer
 
-`install.ps1` automates this whole setup (prereqs → LTX-2.3 → Maxine → build). It's an **online bootstrapper**: it downloads from official sources and **guides you through the two EULA-gated installs** (LTX Desktop, Maxine redistributable), then continues. Idempotent — safe to re-run.
+`install.ps1` automates this whole setup (prereqs incl. ffmpeg → LTX-2.3 → Maxine → build + configure). It's an **online bootstrapper**: it downloads from official sources and **guides you through the two EULA-gated installs** (LTX Desktop, Maxine redistributable), then continues. It also auto-detects the installed ffmpeg and writes its path into `appsettings.json` (`VideoSpeed:FfmpegPath`). Idempotent — safe to re-run.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\ClaudeCore\ClaudeCore\install.ps1
@@ -223,3 +223,4 @@ A local operations page (nav link **Admin**) showing the health of each moving p
 - **2026-06-13** — Added `tools/publish-keithvision.ps1` (+ `.cmd`) one-command re-publish; "Clear Video" button on the result; **local domain**: app binds port 80 (Kestrel config), `tools/add-keithvision-host.ps1` maps www.keithvision.com → 127.0.0.1 (run as admin) for this-PC access.
 - **2026-06-13** — **Admin dashboard** (`/Admin`): live health of LTX server (port/model/GPU/VRAM), Maxine SDK readiness, web-app version/uptime, and output-disk space, plus a **Restart LTX server** button (`tools/restart-ltx-server.ps1`) to recover a hung server in place. New `AdminController` + `LtxServerControl`; `Ltx:RestartScriptPath` config. Validated `/Admin` + `/Admin/Status` (LTX shown offline correctly when its server is down). Added a client-side progress bar to the restart (shows during, hides when done). All buttons standardized to `btn-primary`.
 - **2026-06-13** — **"Play faster" re-time**: optional toggle (1.5×/2×/3×/4×) on the Generate flow and `/Upscale` that runs *after* upscaling, re-timing the upscaled clip with **ffmpeg** (`setpts`, H.264) and saving a `…_xN.mp4`. Installed ffmpeg (winget Gyan.FFmpeg 8.1.1); new `VideoSpeedService`/`VideoSpeedOptions` + `VideoSpeed:FfmpegPath` config. Validated the re-time (5.04 s → 2.58 s at 2×).
+- **2026-06-13** — **Installer updated for ffmpeg**: `install.ps1` now installs ffmpeg (winget Gyan.FFmpeg) in the prereqs step and auto-detects its absolute path (PATH or the WinGet package folder), writing it into `appsettings.json` → `VideoSpeed:FfmpegPath` during configure. Added a technical root `README.md`.
