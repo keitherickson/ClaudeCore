@@ -12,8 +12,8 @@ public sealed record SpeedResult(string FileName, string SavedPath, double Speed
 /// filter (and <c>atempo</c> for audio when kept). Two entry points:
 ///
 ///  - <see cref="RetimeAsync"/> — used after Maxine upscaling. The upscaled file
-///    is video-only (Maxine's OpenCV writer drops audio), so it re-times video
-///    only and writes the result next to the input.
+///    has had its audio restored (see <see cref="RestoreAudioAsync"/>), so it
+///    re-times video and audio together and writes the result next to the input.
 ///  - <see cref="StageInputAsync"/> + <see cref="RetimeUploadAsync"/> — the
 ///    standalone /Speed page: stages an uploaded clip, re-times it (keeping and
 ///    re-timing audio when present), and writes to the configured output dir.
@@ -65,15 +65,15 @@ public sealed class VideoSpeedService
 
     /// <summary>
     /// Re-times <paramref name="inputPath"/> to play at <paramref name="speed"/>×,
-    /// writing a "_xN.mp4" alongside it. Video-only (used for upscaled clips,
-    /// which have no audio).
+    /// writing a "_xN.mp4" alongside it. Keeps and re-times audio when the input has
+    /// a track (upscaled clips get their audio restored before this runs).
     /// </summary>
     public Task<SpeedResult> RetimeAsync(string inputPath, double speed, CancellationToken ct = default)
     {
         var dir = Path.GetDirectoryName(inputPath)!;
         var stem = Path.GetFileNameWithoutExtension(inputPath);
         var outPath = Path.Combine(dir, $"{stem}_{Tag(speed)}.mp4");
-        return RunRetimeAsync(inputPath, speed, outPath, keepAudio: false, ct);
+        return RunRetimeAsync(inputPath, speed, outPath, keepAudio: true, ct);
     }
 
     /// <summary>
@@ -89,6 +89,38 @@ public sealed class VideoSpeedService
     }
 
     public string GetOutputFilePath(string name) => Path.Combine(_o.OutputDirectory, Path.GetFileName(name));
+
+    /// <summary>
+    /// Maxine's OpenCV writer produces a video-only file, so the source audio is
+    /// lost. Re-muxes the audio track from <paramref name="audioSourcePath"/> (the
+    /// original upload) onto the upscaled <paramref name="videoPath"/> in place,
+    /// copying the video stream untouched (no re-encode). No-op if the source has
+    /// no audio or ffprobe is unavailable.
+    /// </summary>
+    public async Task RestoreAudioAsync(string videoPath, string audioSourcePath, CancellationToken ct = default)
+    {
+        if (!File.Exists(videoPath) || !File.Exists(audioSourcePath)) return;
+        if (!await HasAudioStreamAsync(audioSourcePath, ct)) return;
+
+        var temp = Path.Combine(Path.GetTempPath(), $"mux_{Guid.NewGuid():N}.mp4");
+        var args = new List<string>
+        {
+            "-y", "-hide_banner", "-loglevel", "error",
+            "-i", videoPath,        // 0: upscaled, video-only
+            "-i", audioSourcePath,  // 1: original upload, for its audio
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "copy", "-c:a", "aac",
+            "-shortest", "-movflags", "+faststart",
+            temp,
+        };
+        _log.LogInformation("Restoring audio from {Src} onto upscaled {Video}", audioSourcePath, videoPath);
+        var (exit, stderr) = await RunFfmpegAsync(args, ct);
+        if (exit != 0 || !File.Exists(temp))
+            throw new InvalidOperationException($"ffmpeg audio mux failed (exit {exit}).\n{stderr}".Trim());
+
+        File.Copy(temp, videoPath, overwrite: true);
+        try { File.Delete(temp); } catch { /* temp cleanup is best effort */ }
+    }
 
     /// <summary>
     /// Maxine's VideoEffectsApp only accepts H.264 input ("Filters only target

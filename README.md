@@ -15,7 +15,7 @@ A local, single-machine web application for **AI video generation and post-proce
 Everything else (UI, request handling, file orchestration) is the .NET app itself.
 
 - **Generate Video** — text-to-video and image-to-video via a self-hosted **LTX-2.3** inference server.
-- **Upscale** — super-resolution up to 4K via the **NVIDIA Maxine Video Effects SDK**.
+- **Upscale** — super-resolution up to 4K via the **NVIDIA Maxine Video Effects SDK** (source audio is preserved).
 - **Play faster** — optional re-time of an upscaled clip via **ffmpeg** (within the Generate / Upscale flows).
 - **Speed Up** — standalone page to re-time **any** uploaded video via **ffmpeg** (audio kept and re-timed when present).
 - **Admin** — health dashboard and in-place restart of the LTX server.
@@ -85,13 +85,14 @@ Super-resolution via the Maxine SDK's `VideoEffectsApp.exe`, run as a per-job ch
 - SuperRes requires an output height that is an integer **2×/3×/4×** of the source, so both the Generate flow and the standalone page take a **factor** (not an absolute height) and compute `target = sourceHeight × factor` — the source height is read with [`VideoProbe`](Services/VideoProbe.cs), a dependency-free MP4 `tkhd`-box reader. (An arbitrary absolute height could be a non-integer multiple, which the SDK rejects.)
 - **Input is normalized to H.264 first.** `VideoEffectsApp` only accepts H.264 ("Filters only target H264 videos, not HEVC"), so the source is probed with `ffprobe` and transcoded to a temp H.264 copy (via `VideoSpeedService.EnsureH264Async`) when it isn't already H.264.
 - The SDK's runtime/OpenCV DLLs are injected onto the child process `PATH`; models must live in a **writable** directory (TensorRT caches its engine on first run — see InstallationSteps for that gotcha).
+- **Audio is restored afterward.** Maxine's OpenCV writer produces a video-only file, so the original upload's audio is re-muxed back on (`VideoSpeedService.RestoreAudioAsync`: `-c:v copy` so the upscaled video isn't re-encoded, audio → AAC). No-op when the source has no audio track.
 - Standalone page at `GET /Upscale`; uploads accepted up to 2 GB.
 
 ### 3. Play faster (re-time) — `VideoSpeedService`
 Optional step that runs **after** upscaling, on both the Generate flow and the Upscale page.
 
 - Shells out to ffmpeg with `setpts=(1/N)*PTS` and re-encodes to browser-friendly H.264, writing a `…_xN.mp4` next to the upscaled file (so the existing download route serves it with no new endpoint).
-- Video-only (`-an`): the Maxine output has no audio track (its OpenCV writer drops it), so nothing is lost.
+- Keeps and re-times audio when present (the upscaled clip has its audio restored first), applying an `atempo` chain so sound stays in sync; falls back to video-only on silent inputs.
 - Factors offered: 1.5× / 2× / 3× / 4×.
 
 ### 4. Admin — `AdminController` + `LtxServerControl`
@@ -118,7 +119,7 @@ Standalone page at `GET /Speed` to re-time **any** uploaded video (independent o
 | `LtxVideoService` | Orchestrates a generation: stage image → call server → copy result to output dir. Path-traversal guards on download/reuse. |
 | `LtxServerControl` | Port-listening check + restart of the LTX server process. |
 | `MaxineUpscaleService` | Runs `VideoEffectsApp.exe` per job; builds args per effect; sets up the DLL `PATH`. |
-| `VideoSpeedService` | Runs ffmpeg `setpts` re-time. Video-only after upscaling; keeps + re-times audio (`atempo` chain, with `ffprobe` detection) for the standalone Speed Up page. |
+| `VideoSpeedService` | Runs ffmpeg `setpts` re-time; keeps + re-times audio (`atempo` chain, with `ffprobe` detection). Also `RestoreAudioAsync` re-muxes the source audio onto the video-only Maxine output. |
 | `VideoProbe` | Reads MP4 display height (no external dependency) to choose a valid SuperRes factor. |
 | `LastImageStore` | Remembers the last starting image across requests/restarts (persisted to a state file). |
 | `*Options` classes | Strongly-typed config bound from `appsettings.json`. |

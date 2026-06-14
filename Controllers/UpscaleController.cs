@@ -77,6 +77,11 @@ public class UpscaleController : Controller
 
             var result = await _service.UpscaleAsync(input, effect, resolution, mode, strength, ct);
 
+            // Maxine's writer produces a video-only file; restore the original
+            // upload's audio onto it (staged still has audio — input may be the
+            // audio-stripped H.264 temp).
+            await _speed.RestoreAudioAsync(result.SavedPath, staged, ct);
+
             // Optionally re-time the upscaled clip to play faster.
             var fileName = result.FileName;
             var savedPath = result.SavedPath;
