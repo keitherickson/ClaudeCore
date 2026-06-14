@@ -1,5 +1,7 @@
+@inject Microsoft.Extensions.Options.IOptions<ClaudeCore.Services.VideoDefaultsOptions> VideoDefaults
 @{
     ViewData["Title"] = "Generate Video (LTX-2.3)";
+    var vd = VideoDefaults.Value;
 }
 
 <div class="row">
@@ -20,6 +22,10 @@
             <div class="mb-3">
                 <label class="form-label fw-semibold">Starting image <span class="text-muted fw-normal">(optional — enables image-to-video)</span></label>
                 <input type="file" name="image" id="image" class="form-control" accept="image/*" />
+                <div id="saved-image" class="form-text d-none">
+                    Reusing saved image: <code id="saved-image-path"></code>
+                    <a href="#" id="clear-saved-image" class="ms-1">clear</a>
+                </div>
             </div>
 
             <div class="row g-3">
@@ -131,6 +137,8 @@
 
         <div id="upscale-warning" class="alert alert-warning d-none mt-3" role="alert"></div>
 
+        <button type="button" id="clear-videos" class="btn btn-primary btn-sm d-none mt-3">Clear Video</button>
+
         <div id="error-card" class="alert alert-danger d-none mt-4 mt-lg-0" role="alert"></div>
     </div>
 </div>
@@ -156,12 +164,33 @@
     const upscaledPath = document.getElementById("upscaled-path");
     const upscaledDownload = document.getElementById("upscaled-download");
     const upscaleWarning = document.getElementById("upscale-warning");
+    const clearVideosBtn = document.getElementById("clear-videos");
+
+    // Remove the shown videos and hide this button.
+    clearVideosBtn.addEventListener("click", function () {
+        for (const v of [resultVideo, upscaledVideo]) { v.removeAttribute("src"); v.load(); }
+        resultCard.classList.add("d-none");
+        upscaledCard.classList.add("d-none");
+        upscaleWarning.classList.add("d-none");
+        clearVideosBtn.classList.add("d-none");
+    });
 
     upscaleChk.addEventListener("change", function () {
         upscaleOpts.classList.toggle("d-none", !upscaleChk.checked);
     });
 
     let pollTimer = null;
+    let estimate = 0; // smoothed client-side estimate (backend reports coarse jumps)
+
+    // Form defaults from server config (appsettings.json -> VideoDefaults).
+    const DEFAULTS = {
+        resolution: "@vd.Resolution",
+        duration: @vd.Duration,
+        fps: @vd.Fps,
+        aspectRatio: "@vd.AspectRatio",
+        cameraMotion: "@vd.CameraMotion",
+        audio: @(vd.Audio ? "true" : "false")
+    };
 
     // --- Capability matrix: which durations/fps are valid per resolution ---
     // Pulled live from the server; this is the offline fallback (LTX 2.3 Fast).
@@ -188,22 +217,25 @@
         if (values.map(String).includes(prev)) sel.value = prev; // preserve choice if still valid
     }
 
-    function populateDurations() {
+    function populateDurations(useDefaults) {
         const list = ((matrix[resSel.value] || {})[fpsSel.value] || []).slice().sort((a, b) => a - b);
         fillSelect(durSel, list, v => v + " s");
+        if (useDefaults && list.map(String).includes(String(DEFAULTS.duration))) durSel.value = String(DEFAULTS.duration);
     }
 
-    function populateFps() {
+    function populateFps(useDefaults) {
         const list = Object.keys(matrix[resSel.value] || {}).sort((a, b) => a - b);
         fillSelect(fpsSel, list);
-        populateDurations();
+        if (useDefaults && list.map(String).includes(String(DEFAULTS.fps))) fpsSel.value = String(DEFAULTS.fps);
+        populateDurations(useDefaults);
     }
 
-    function populateResolutions() {
+    function populateResolutions(useDefaults) {
         const resos = Object.keys(matrix).sort((a, b) => parseInt(a) - parseInt(b));
         fillSelect(resSel, resos);
-        if (matrix["720p"]) resSel.value = "720p"; // default that allows clips longer than 5s
-        populateFps();
+        if (useDefaults && resos.includes(DEFAULTS.resolution)) resSel.value = DEFAULTS.resolution;
+        else if (!resos.includes(resSel.value) && resos.length) resSel.value = resos[0];
+        populateFps(useDefaults);
     }
 
     async function loadSpecs() {
@@ -219,11 +251,47 @@
                 if (Object.keys(m).length) matrix = m;
             }
         } catch { /* keep fallback */ }
-        populateResolutions();
+        populateResolutions(true);
     }
 
-    resSel.addEventListener("change", populateFps);
-    fpsSel.addEventListener("change", populateDurations);
+    resSel.addEventListener("change", () => populateFps(false));
+    fpsSel.addEventListener("change", () => populateDurations(false));
+
+    // Apply config defaults to the static fields.
+    form.elements["cameraMotion"].value = DEFAULTS.cameraMotion;
+    form.elements["aspectRatio"].value = DEFAULTS.aspectRatio;
+    form.elements["audio"].checked = DEFAULTS.audio;
+
+    // --- Persisted prompt (localStorage) + server-remembered starting image ---
+    const PROMPT_KEY = "keithvision.prompt";
+    const imageInput = document.getElementById("image");
+    const savedImageBox = document.getElementById("saved-image");
+    const savedImagePathEl = document.getElementById("saved-image-path");
+    // The last image is remembered server-side; rendered here so it shows on load.
+    let savedImagePath = @Json.Serialize(ViewData["LastImage"]);
+
+    function showSavedImage() {
+        savedImagePathEl.textContent = savedImagePath || "";
+        const hasNewFile = imageInput.files && imageInput.files.length > 0;
+        savedImageBox.classList.toggle("d-none", !savedImagePath || hasNewFile);
+    }
+
+    // Restore the prompt from localStorage; the image comes from the server.
+    (function restorePersisted() {
+        const p = localStorage.getItem(PROMPT_KEY);
+        if (p) form.elements["prompt"].value = p;
+        showSavedImage();
+    })();
+
+    // A newly chosen file takes precedence over the saved image for this run.
+    imageInput.addEventListener("change", showSavedImage);
+
+    document.getElementById("clear-saved-image").addEventListener("click", async function (e) {
+        e.preventDefault();
+        try { await fetch("/Video/ClearImage", { method: "POST" }); } catch { /* ignore */ }
+        savedImagePath = null;
+        showSavedImage();
+    });
 
     async function checkHealth() {
         try {
@@ -246,16 +314,28 @@
         try {
             const r = await fetch("/Video/Progress");
             const p = await r.json();
-            const pct = Math.max(0, Math.min(100, p.progress || 0));
-            progressBar.style.width = pct + "%";
-            progressBar.textContent = pct + "%";
-            let phase = p.phase || p.status || "";
-            if (p.currentStep != null && p.totalSteps != null) {
-                phase += ` (step ${p.currentStep}/${p.totalSteps})`;
+            const real = Math.max(0, Math.min(100, p.progress || 0));
+
+            // The backend reports coarse jumps (5 -> 10 -> 15 -> 100) and pins at
+            // 15% for the whole render. Ease a smooth estimate toward a per-phase
+            // ceiling, never below the real value, and snap to 100 when complete.
+            if (p.status === "complete" || real >= 100) {
+                estimate = 100;
+            } else {
+                const ceiling = (p.phase === "inference") ? 95 : 14;
+                const rate = (p.phase === "inference") ? 0.03 : 0.05;
+                const base = Math.max(estimate, real);
+                estimate = Math.min(ceiling, base + (ceiling - base) * rate);
             }
+            const display = Math.round(Math.max(real, estimate));
+            progressBar.style.width = display + "%";
+            progressBar.textContent = display + "%";
+
+            let phase = p.phase || p.status || "";
+            if (p.phase === "inference") phase = "rendering frames (estimated)";
             // Generation done but request still pending => the upscale phase is running.
-            if (upscaleChk.checked && (p.status === "complete" || p.status === "idle") && pct >= 100) {
-                phase = `Generation complete — upscaling ${document.getElementById("upscaleFactor").value}x…`;
+            if (upscaleChk.checked && (p.status === "complete" || p.status === "idle") && real >= 100) {
+                phase = `generation complete — upscaling ${document.getElementById("upscaleFactor").value}x…`;
             }
             progressPhase.textContent = phase;
         } catch { /* ignore transient poll errors */ }
@@ -267,10 +347,12 @@
         resultCard.classList.add("d-none");
         upscaledCard.classList.add("d-none");
         upscaleWarning.classList.add("d-none");
+        clearVideosBtn.classList.add("d-none");
         progressCard.classList.remove("d-none");
         progressBar.style.width = "0%";
         progressBar.textContent = "0%";
         progressPhase.textContent = "submitting…";
+        estimate = 0;
         btn.disabled = true;
 
         pollTimer = setInterval(poll, 1000);
@@ -279,6 +361,7 @@
             const data = new FormData(form);
             if (!document.getElementById("audio").checked) data.set("audio", "false");
             if (!upscaleChk.checked) data.set("upscale", "false");
+            // No new file? The server automatically reuses the remembered image.
 
             const resp = await fetch("/Video/Generate", { method: "POST", body: data });
             const result = await resp.json();
@@ -291,6 +374,14 @@
                 resultDownload.href = url;
                 resultPath.textContent = `${result.mode} · saved to ${result.savedPath}`;
                 resultCard.classList.remove("d-none");
+                clearVideosBtn.classList.remove("d-none");
+
+                // Generation completed => persist prompt (localStorage); the image is
+                // already remembered server-side, just sync the UI.
+                localStorage.setItem(PROMPT_KEY, form.elements["prompt"].value);
+                savedImagePath = result.inputImagePath || null;
+                if (savedImagePath) imageInput.value = ""; // clear picker; server reuses it next time
+                showSavedImage();
 
                 // Upscaled copy (if requested)
                 if (result.upscaled) {

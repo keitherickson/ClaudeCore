@@ -87,7 +87,7 @@ Text-to-video and image-to-video, generated locally and saved to disk. Full deta
 C:\ClaudeCore\ClaudeCore\tools\run-ltx-server.ps1   # serves http://127.0.0.1:8765
 ```
 
-**Config** — `appsettings.json` → `Ltx`: `BaseUrl`, `OutputDirectory` (`C:\Users\keith\Videos\LTX-Generated`), `InputDirectory`, `GenerationTimeoutMinutes`.
+**Config** — `appsettings.json` → `Ltx`: `BaseUrl`, `OutputDirectory` (`C:\Users\keith\Videos\LTX-Generated`), `InputDirectory`, `GenerationTimeoutMinutes`. Form defaults live in `appsettings.json` → `VideoDefaults` (`Resolution`, `Duration`, `Fps`, `AspectRatio`, `CameraMotion`, `Audio`). UI name in `Branding:AppName`.
 
 **Notes:** local "fast" pipeline; resolution caps duration (1080p→5 s, 720p→10 s, 540p→20 s); 24 fps only. The form pulls this matrix live from the server.
 
@@ -147,6 +147,47 @@ Pages: **Generate Video** (`/Video`, landing) · **Upscale Video** (`/Upscale`).
 
 ---
 
+## 5b. Auto-start at Windows logon ✅
+
+A Task Scheduler task **"KeithVision Startup"** (logon trigger, runs as the current user, hidden) launches both services in the background via `tools/start-keithvision.ps1`:
+- LTX-2.3 server on `:8765`
+- the web app (published build) on `http://127.0.0.1:5080`
+
+Setup performed:
+1. Published a Release build: `dotnet publish ClaudeCore.csproj -c Release -o C:\ClaudeCore\KeithVision`.
+2. `tools/start-keithvision.ps1` starts each service only if its port isn't already listening; logs to `C:\ClaudeCore\logs`.
+3. Registered the task (`Register-ScheduledTask`, no elevation needed).
+
+> ⚠️ **The task runs the PUBLISHED build**, not the live source. After code changes, re-publish so startup picks them up — use the helper script (stops the app, publishes, relaunches):
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File C:\ClaudeCore\ClaudeCore\tools\publish-keithvision.ps1
+> ```
+> Keep **LTX Desktop closed** (VRAM).
+
+Manage it:
+```powershell
+Start-ScheduledTask  -TaskName "KeithVision Startup"   # run now
+Disable-ScheduledTask -TaskName "KeithVision Startup"  # stop auto-start
+Unregister-ScheduledTask -TaskName "KeithVision Startup" -Confirm:$false  # remove
+```
+
+---
+
+## 5c. Local domain — http://www.keithvision.com (this PC) ✅ / ⏳
+
+Reach the app at a friendly name **on this machine** (not the public internet; no domain ownership needed).
+
+- **App side (done):** binds **port 80** + 5080 via `appsettings.json` → `Kestrel:Endpoints`, and accepts the host (AllowedHosts `*`). Verified `Host: www.keithvision.com` on `:80` → HTTP 200.
+- **⏳ One admin step (you):** add the hosts mapping `127.0.0.1 → www.keithvision.com`. From an **elevated** PowerShell:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File C:\ClaudeCore\ClaudeCore\tools\add-keithvision-host.ps1
+  ```
+  Then open **http://www.keithvision.com**.
+
+> Only this PC resolves the name (hosts file). For other devices or the public internet you'd need real DNS + exposure + TLS + a login (not set up).
+
+---
+
 ## 6. Deferred / future ⏸️
 
 - **SeedVR2 upscaling** — paused (Blackwell + ~80 GB VRAM blockers on the official repo). Links if revisited: source [ByteDance-Seed/SeedVR](https://github.com/ByteDance-Seed/SeedVR), weights [ByteDance-Seed/SeedVR2-3B](https://huggingface.co/ByteDance-Seed/SeedVR2-3B). Maxine (section 4) chosen instead.
@@ -159,3 +200,7 @@ Pages: **Generate Video** (`/Video`, landing) · **Upscale Video** (`/Upscale`).
 - **2026-06-13** — Maxine SDK redistributable installed; **validated upscaling end to end** (image + video + `/Upscale` pipeline) on the RTX 5090. Found the writable-models-dir gotcha (copied models to `C:\ClaudeCore\maxine-models`); added configurable output `Codec` (avc1). Section 4 marked ✅.
 - **2026-06-13** — Built the **`install.ps1` bootstrap installer** (prereqs → LTX-2.3 → Maxine → build/configure), including the upscaling setup. Dry-run validated on this machine (all steps detected/built, "Setup complete"). Added a Quick start section; moved the installer out of Deferred.
 - **2026-06-13** — **Integrated upscaling into the Generate flow**: optional toggle generates + saves the original, then auto-upscales (Maxine SuperRes, factor 2/3/4×) and saves an upscaled copy. Added `VideoProbe` (mp4 height reader) to pick a valid factor. Validated end to end (540p generate + 2× → original 0.5 MB + upscaled 22.9 MB in ~139 s).
+- **2026-06-13** — Config-driven UI: `Branding:AppName` (display name "KeithVision"), `VideoDefaults` (form defaults: 540p / 20s / focus_shift / audio on). Full dark theme. Smoothed the generation progress bar (client-side estimate, since the LTX engine doesn't report per-step progress).
+- **2026-06-13** — Persistence: prompt remembered in browser localStorage; last starting image remembered **server-side** (`LastImageStore`, persisted to a state file) and **reused automatically** for the next generation. Both saved only when a generation completes.
+- **2026-06-13** — **Auto-start at logon**: published a Release build to `C:\ClaudeCore\KeithVision`, added `tools/start-keithvision.ps1`, and registered the "KeithVision Startup" scheduled task (web app + LTX server, background). Validated via Start-ScheduledTask (both services up, result 0x0).
+- **2026-06-13** — Added `tools/publish-keithvision.ps1` (+ `.cmd`) one-command re-publish; "Clear Video" button on the result; **local domain**: app binds port 80 (Kestrel config), `tools/add-keithvision-host.ps1` maps www.keithvision.com → 127.0.0.1 (run as admin) for this-PC access.

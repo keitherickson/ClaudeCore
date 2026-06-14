@@ -66,4 +66,21 @@ public sealed class LtxVideoService
     /// <summary>Resolves a bare file name to a path inside the output dir (guards against path traversal).</summary>
     public string GetOutputFilePath(string fileName)
         => Path.Combine(_options.OutputDirectory, Path.GetFileName(fileName));
+
+    /// <summary>True if the path is a real file inside the staging input directory (prevents reading arbitrary files).</summary>
+    public bool IsStagedInputImage(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var dir = Path.GetFullPath(_options.InputDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return full.StartsWith(dir, StringComparison.OrdinalIgnoreCase) && File.Exists(full);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

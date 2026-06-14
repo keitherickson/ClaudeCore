@@ -9,6 +9,9 @@ builder.Services.AddControllersWithViews();
 // UI branding (display name) from the "Branding" config section.
 builder.Services.Configure<BrandingOptions>(builder.Configuration.GetSection(BrandingOptions.SectionName));
 
+// Default selections for the Generate Video form ("VideoDefaults" section).
+builder.Services.Configure<VideoDefaultsOptions>(builder.Configuration.GetSection(VideoDefaultsOptions.SectionName));
+
 // LTX-2 local video generation: bind options, register the typed HttpClient
 // (with a generous timeout since /api/generate blocks until the video is done),
 // and the orchestration service.
@@ -20,6 +23,8 @@ builder.Services.AddHttpClient<LtxVideoClient>((sp, client) =>
     client.Timeout = TimeSpan.FromMinutes(opts.GenerationTimeoutMinutes);
 });
 builder.Services.AddScoped<LtxVideoService>();
+// Remembers the last-used starting image across requests/restarts.
+builder.Services.AddSingleton<LastImageStore>();
 
 // NVIDIA Maxine upscaling: shells out to the SDK's VideoEffectsApp.exe per job.
 builder.Services.Configure<MaxineUpscaleOptions>(builder.Configuration.GetSection(MaxineUpscaleOptions.SectionName));

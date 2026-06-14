@@ -8,17 +8,31 @@ public class VideoController : Controller
 {
     private readonly LtxVideoService _service;
     private readonly MaxineUpscaleService _upscaler;
+    private readonly LastImageStore _lastImage;
     private readonly ILogger<VideoController> _logger;
 
-    public VideoController(LtxVideoService service, MaxineUpscaleService upscaler, ILogger<VideoController> logger)
+    public VideoController(LtxVideoService service, MaxineUpscaleService upscaler, LastImageStore lastImage, ILogger<VideoController> logger)
     {
         _service = service;
         _upscaler = upscaler;
+        _lastImage = lastImage;
         _logger = logger;
     }
 
     [HttpGet]
-    public IActionResult Index() => View();
+    public IActionResult Index()
+    {
+        ViewData["LastImage"] = _lastImage.Get(); // remembered starting image, reused automatically
+        return View();
+    }
+
+    /// <summary>Forget the remembered starting image.</summary>
+    [HttpPost]
+    public IActionResult ClearImage()
+    {
+        _lastImage.Set(null);
+        return Json(new { ok = true });
+    }
 
     /// <summary>Connectivity + model-status probe for the page header.</summary>
     [HttpGet]
@@ -90,7 +104,15 @@ public class VideoController : Controller
         {
             string? imagePath = null;
             if (image is { Length: > 0 })
+            {
                 imagePath = await _service.StageImageAsync(image, ct);
+            }
+            else
+            {
+                // No new upload: automatically reuse the last remembered image.
+                var last = _lastImage.Get();
+                if (_service.IsStagedInputImage(last)) imagePath = last;
+            }
 
             var request = new GenerateVideoRequest
             {
@@ -107,6 +129,9 @@ public class VideoController : Controller
 
             // 1. Generate + save the original.
             var result = await _service.GenerateAsync(request, ct);
+
+            // Generation completed => remember (or clear) the starting image server-side.
+            _lastImage.Set(imagePath);
 
             // 2. Optionally upscale the saved original and save an upscaled copy.
             object? upscaled = null;
@@ -140,6 +165,7 @@ public class VideoController : Controller
                 fileName = result.FileName,
                 savedPath = result.SavedPath,
                 mode = imagePath is null ? "text-to-video" : "image-to-video",
+                inputImagePath = imagePath,
                 upscaled,
                 upscaleError,
             });
