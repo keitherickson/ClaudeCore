@@ -37,6 +37,9 @@ public sealed class LtxVideoService
 
     public Task<string> GetHealthRawAsync(CancellationToken ct = default) => _client.GetHealthRawAsync(ct);
 
+    /// <summary>Requests cancellation of the in-progress generation. Returns the server's raw status JSON.</summary>
+    public Task<string> CancelGenerationAsync(CancellationToken ct = default) => _client.CancelAsync(ct);
+
     /// <summary>Saves an uploaded conditioning image to a local path the server can open, and returns that path.</summary>
     public async Task<string> StageImageAsync(IFormFile image, CancellationToken ct = default)
     {
@@ -53,9 +56,31 @@ public sealed class LtxVideoService
         return path;
     }
 
+    /// <summary>
+    /// Saves an uploaded audio file to a server-readable path (for audio-to-video)
+    /// and returns it. The original extension is preserved — the server sniffs the
+    /// content against it (wav/flac/ogg/mp3/aac/m4a).
+    /// </summary>
+    public async Task<string> StageAudioAsync(IFormFile audio, CancellationToken ct = default)
+    {
+        Directory.CreateDirectory(_options.InputDirectory);
+        var ext = Path.GetExtension(audio.FileName);
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".mp3";
+
+        var path = Path.Combine(
+            _options.InputDirectory,
+            $"audio_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}{ext}");
+
+        await using var fs = File.Create(path);
+        await audio.CopyToAsync(fs, ct);
+        return path;
+    }
+
     public async Task<VideoResult> GenerateAsync(GenerateVideoRequest request, CancellationToken ct = default)
     {
         var response = await _client.GenerateAsync(request, ct);
+        if (response.Status == "cancelled")
+            throw new LtxGenerationCancelledException();
         if (response.Status != "complete" || string.IsNullOrEmpty(response.VideoPath))
             throw new LtxServerException(500, $"Generation did not complete (status={response.Status}).");
 

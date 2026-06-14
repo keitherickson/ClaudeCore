@@ -42,6 +42,38 @@ public sealed class LtxServerControl
     }
 
     /// <summary>
+    /// Fire-and-forget restart: launches the restart script detached and returns
+    /// immediately, without capturing output or tracking the process. Used by the
+    /// Generate page's Cancel to free the GPU now (the script kills the port's
+    /// process first, then relaunches). Crucially it does NOT wait or kill a
+    /// process tree, so the freshly relaunched server is never torn down.
+    /// </summary>
+    public void RestartDetached()
+    {
+        var script = _options.RestartScriptPath;
+        if (!File.Exists(script))
+        {
+            _logger.LogWarning("Restart script not found at {Script}; cannot hard-stop.", script);
+            return;
+        }
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            ArgumentList =
+            {
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", script, "-Port", Port.ToString()
+            },
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        _logger.LogInformation("Hard-stop: launching detached LTX restart on port {Port}", Port);
+        Process.Start(psi); // detached on purpose — the relaunched server must outlive this call
+    }
+
+    /// <summary>
     /// Runs the restart script (stop the process on the port, relaunch it, wait
     /// for it to start listening). Blocks until the script finishes or a hard
     /// 90s cap elapses. Returns the script's combined output either way.

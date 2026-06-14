@@ -26,4 +26,11 @@ public sealed class LtxVideoOptions
     /// references ltx_launch.py from), not the published app folder.
     /// </summary>
     public string RestartScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\restart-ltx-server.ps1";
+
+    /// <summary>
+    /// After a cancel-triggered restart, how long (ms) the Generate page keeps
+    /// showing "server restarting…" once /health first answers, before flipping
+    /// to "server online" — /health responds before the server is fully ready.
+    /// </summary>
+    public int RestartReadyDelayMs { get; set; } = 10000;
 }

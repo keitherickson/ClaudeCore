@@ -71,10 +71,11 @@ Text-to-video, or image-to-video when a starting image is supplied.
 1. `GET /Video` renders the form. The capability matrix (which resolutions allow which fps/durations) is fetched live from the server (`/Video/Specs`) with a hard-coded fallback, so the form self-adapts.
 2. `POST /Video/Generate`:
    - An uploaded image is staged to the LTX **input** directory (`LtxVideoService.StageImageAsync`) so the server process can read it. With no upload, the last-used image is reused (`LastImageStore`).
+   - An optional uploaded **audio track** is staged the same way (`StageAudioAsync`, `audioPath`); supplying it switches the server to **audio-to-video** (the audio drives the render, an image becomes a conditioning frame, and the generate-audio flag is ignored).
    - The request is POSTed to the LTX server (`/api/generate`); the call blocks until the `.mp4` is rendered.
    - The finished file is copied from the server's output path into the app's **output** directory, then **converted to H.264** in place if the LTX engine emitted HEVC (`VideoSpeedService.ConvertToH264InPlaceAsync`, audio preserved) — H.264 plays in all browsers and is what Maxine accepts.
    - *(optional)* If "Upscale" is checked → run Maxine (see below). If "Play faster" is also checked → re-time the upscaled file (see below).
-3. The browser polls `/Video/Progress` during the run; because the engine reports coarse progress, the bar is a smoothed client-side estimate.
+3. The browser polls `/Video/Progress` during the run; because the engine reports coarse progress, the bar is a smoothed client-side estimate. A **Cancel** button posts to `/Video/Cancel`, which **hard-stops** the render by killing + relaunching the LTX server (`LtxServerControl.RestartDetached` — fire-and-forget so the request returns instantly and the relaunched server is never torn down). The server's own cooperative cancel can't interrupt an in-progress video inference (no per-step hook), so restarting the process is the only way to actually free the GPU mid-render — at the cost of reloading models on the next generation.
 4. `GET /Video/Download?name=…` streams the result (range-enabled, with a path-traversal guard).
 
 ### 2. Upscale — `UpscaleController` + `MaxineUpscaleService`
@@ -132,7 +133,7 @@ Standalone page at `GET /Speed` to re-time **any** uploaded video (independent o
 | `Branding` | UI display name | `AppName` |
 | `VideoDefaults` | Generate-form defaults | `Resolution`, `Duration`, `Fps`, `AspectRatio`, `CameraMotion`, `Audio` |
 | `Gpu` | Live GPU footer readout | `PollIntervalMs` (default 1000) |
-| `Ltx` | LTX server + I/O | `BaseUrl` (`:8765`), `OutputDirectory`, `InputDirectory`, `GenerationTimeoutMinutes`, `RestartScriptPath` |
+| `Ltx` | LTX server + I/O | `BaseUrl` (`:8765`), `OutputDirectory`, `InputDirectory`, `GenerationTimeoutMinutes`, `RestartScriptPath`, `RestartReadyDelayMs` (post-cancel "ready" delay) |
 | `Maxine` | Upscaler exe + SDK | `ExecutablePath`, `ModelDir` (writable copy), `SdkBinDir`, `OpenCvBinDir`, `OutputDirectory`, `Codec` (`avc1`), `TimeoutMinutes` |
 | `VideoSpeed` | ffmpeg re-time | `FfmpegPath`, `OutputDirectory`, `InputDirectory` (Speed page staging), `TimeoutMinutes` |
 

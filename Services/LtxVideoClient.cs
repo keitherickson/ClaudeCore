@@ -30,6 +30,14 @@ public sealed class LtxVideoClient
         return await resp.Content.ReadAsStringAsync(ct);
     }
 
+    /// <summary>Requests cancellation of the in-progress generation. Returns the raw status JSON (cancelling | no_active_generation).</summary>
+    public async Task<string> CancelAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync("/api/generate/cancel", content: null, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
     public async Task<GenerationProgress?> GetProgressAsync(CancellationToken ct = default)
     {
         using var resp = await _http.GetAsync("/api/generation/progress", ct);
@@ -74,4 +82,10 @@ public sealed class LtxServerException : Exception
 
     public LtxServerException(int statusCode, string message)
         : base($"LTX server returned {statusCode}: {message}") => StatusCode = statusCode;
+}
+
+/// <summary>Raised when a generation was cancelled by the user (the server returned status "cancelled").</summary>
+public sealed class LtxGenerationCancelledException : Exception
+{
+    public LtxGenerationCancelledException() : base("Generation was cancelled.") { }
 }

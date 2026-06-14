@@ -1,7 +1,9 @@
 @inject Microsoft.Extensions.Options.IOptions<ClaudeCore.Services.VideoDefaultsOptions> VideoDefaults
+@inject Microsoft.Extensions.Options.IOptions<ClaudeCore.Services.LtxVideoOptions> LtxOpts
 @{
     ViewData["Title"] = "Generate Video (LTX-2.3)";
     var vd = VideoDefaults.Value;
+    var restartReadyDelayMs = LtxOpts.Value.RestartReadyDelayMs;
 }
 
 <div class="row">
@@ -18,8 +20,9 @@
                     Prompt
                     <a href="#" id="clear-saved-prompt" class="ms-2 small fw-normal d-none">clear saved prompt</a>
                 </label>
-                <textarea name="prompt" class="form-control" rows="3" required
+                <textarea name="prompt" id="prompt" class="form-control" rows="3"
                           placeholder="A red fox trotting through a snowy forest, cinematic lighting"></textarea>
+                <div class="invalid-feedback">Please enter a prompt before generating.</div>
             </div>
 
             <div class="mb-3">
@@ -29,6 +32,12 @@
                     Reusing saved image: <code id="saved-image-path"></code>
                     <a href="#" id="clear-saved-image" class="ms-1">clear</a>
                 </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Audio track <span class="text-muted fw-normal">(optional — drives audio-to-video)</span></label>
+                <input type="file" name="audioFile" id="audioFile" class="form-control" accept="audio/*" />
+                <div class="form-text">Supply your own audio (wav/mp3/flac/ogg/aac/m4a). Switches to audio-to-video; the "generate audio" option below is ignored.</div>
             </div>
 
             <div class="row g-3">
@@ -129,6 +138,8 @@
                     <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%">0%</div>
                 </div>
                 <p id="progress-phase" class="text-muted small mt-2 mb-0"></p>
+                <button type="button" id="cancel-btn" class="btn btn-primary btn-sm mt-2"
+                        title="Hard-stops by restarting the video server to free the GPU. The next generation reloads models.">Cancel generation</button>
             </div>
         </div>
 
@@ -154,6 +165,8 @@
 
         <button type="button" id="clear-videos" class="btn btn-primary btn-sm d-none mt-3">Clear Video</button>
 
+        <div id="gen-notice" class="alert alert-secondary d-none mt-3" role="alert"></div>
+
         <div id="error-card" class="alert alert-danger d-none mt-4 mt-lg-0" role="alert"></div>
     </div>
 </div>
@@ -172,6 +185,8 @@
     const resultPath = document.getElementById("result-path");
     const resultDownload = document.getElementById("result-download");
     const errorCard = document.getElementById("error-card");
+    const genNotice = document.getElementById("gen-notice");
+    const cancelBtn = document.getElementById("cancel-btn");
     const upscaleChk = document.getElementById("upscale");
     const upscaleOpts = document.getElementById("upscale-opts");
     const speedUpChk = document.getElementById("speedUp");
@@ -200,8 +215,25 @@
         speedFactorSel.classList.toggle("d-none", !speedUpChk.checked);
     });
 
+    // Cancel: remove the progress widget right away, then hard-stop the LTX server
+    // (the only way to free the GPU mid-render). The in-flight generate request
+    // errors out when the server is killed and is ignored via cancelRequested.
+    cancelBtn.addEventListener("click", function () {
+        cancelRequested = true;
+        cancelBtn.disabled = true;
+        clearInterval(pollTimer);
+        progressCard.classList.add("d-none");
+        genNotice.textContent = "Generation cancelled — restarting the video server to free the GPU (the next generation reloads models).";
+        genNotice.classList.remove("d-none");
+        // Fire-and-forget: this kills + relaunches the LTX server.
+        fetch("/Video/Cancel", { method: "POST" }).catch(() => { /* ignore */ });
+        // Reflect the server going down + coming back in the status badge.
+        trackServerRestart();
+    });
+
     let pollTimer = null;
     let estimate = 0; // smoothed client-side estimate (backend reports coarse jumps)
+    let cancelRequested = false; // set when the user cancels, so the late-resolving request is ignored
 
     // Form defaults from server config (appsettings.json -> VideoDefaults).
     const DEFAULTS = {
@@ -322,6 +354,13 @@
     // A newly chosen file takes precedence over the saved image for this run.
     imageInput.addEventListener("change", showSavedImage);
 
+    // Supplying an audio track => audio-to-video; the generate-audio toggle is ignored.
+    const audioFileInput = document.getElementById("audioFile");
+    const audioChk = document.getElementById("audio");
+    audioFileInput.addEventListener("change", function () {
+        audioChk.disabled = audioFileInput.files && audioFileInput.files.length > 0;
+    });
+
     document.getElementById("clear-saved-image").addEventListener("click", async function (e) {
         e.preventDefault();
         try { await fetch("/Video/ClearImage", { method: "POST" }); } catch { /* ignore */ }
@@ -329,21 +368,42 @@
         showSavedImage();
     });
 
-    async function checkHealth() {
+    function setLtxStatus(cls, text) {
+        statusBadge.className = "badge " + cls;
+        statusBadge.textContent = text;
+    }
+
+    async function isServerOnline() {
         try {
             const r = await fetch("/Video/Health");
             const d = await r.json();
-            if (d.ok && d.health) {
-                statusBadge.className = "badge bg-success";
-                statusBadge.textContent = "server online";
-            } else {
-                statusBadge.className = "badge bg-danger";
-                statusBadge.textContent = "server offline";
-            }
+            return !!(d.ok && d.health);
         } catch {
-            statusBadge.className = "badge bg-danger";
-            statusBadge.textContent = "server offline";
+            return false;
         }
+    }
+
+    async function checkHealth() {
+        const online = await isServerOnline();
+        setLtxStatus(online ? "bg-success" : "bg-danger", online ? "server online" : "server offline");
+    }
+
+    // After a cancel restarts the server: show "restarting", then poll until it's
+    // back online (or give up after ~2 min and show offline).
+    function trackServerRestart() {
+        setLtxStatus("bg-warning text-dark", "restarting…");
+        let tries = 0;
+        const timer = setInterval(async () => {
+            if (await isServerOnline()) {
+                clearInterval(timer);
+                // /health answers before the server is fully ready for generation,
+                // so hold "restarting…" a bit longer (Ltx:RestartReadyDelayMs) first.
+                setTimeout(() => setLtxStatus("bg-success", "server online"), @restartReadyDelayMs);
+            } else if (++tries > 60) {
+                setLtxStatus("bg-danger", "server offline");
+                clearInterval(timer);
+            }
+        }, 2000);
     }
 
     async function poll() {
@@ -378,13 +438,31 @@
         } catch { /* ignore transient poll errors */ }
     }
 
+    // Clear the red highlight as soon as the user starts typing a prompt.
+    form.elements["prompt"].addEventListener("input", function () {
+        if (this.value.trim()) this.classList.remove("is-invalid");
+    });
+
     form.addEventListener("submit", async function (e) {
         e.preventDefault();
+
+        // Validate: prompt is required.
+        const promptEl = form.elements["prompt"];
+        if (!promptEl.value.trim()) {
+            promptEl.classList.add("is-invalid");
+            promptEl.focus();
+            return;
+        }
+        promptEl.classList.remove("is-invalid");
+
         errorCard.classList.add("d-none");
         resultCard.classList.add("d-none");
         upscaledCard.classList.add("d-none");
         upscaleWarning.classList.add("d-none");
         clearVideosBtn.classList.add("d-none");
+        genNotice.classList.add("d-none");
+        cancelBtn.disabled = false;
+        cancelRequested = false;
         progressCard.classList.remove("d-none");
         progressBar.style.width = "0%";
         progressBar.textContent = "0%";
@@ -404,7 +482,12 @@
             const resp = await fetch("/Video/Generate", { method: "POST", body: data });
             const result = await resp.json();
 
-            if (resp.ok && result.ok) {
+            if (cancelRequested) {
+                // User already cancelled; widget removed and notice shown — ignore the late result.
+            } else if (result.cancelled) {
+                genNotice.textContent = "Generation cancelled.";
+                genNotice.classList.remove("d-none");
+            } else if (resp.ok && result.ok) {
                 progressBar.style.width = "100%";
                 progressBar.textContent = "100%";
                 const url = "/Video/Download?name=" + encodeURIComponent(result.fileName);
@@ -438,8 +521,10 @@
                 throw new Error(result.error || ("HTTP " + resp.status));
             }
         } catch (err) {
-            errorCard.textContent = "Generation failed: " + err.message;
-            errorCard.classList.remove("d-none");
+            if (!cancelRequested) {
+                errorCard.textContent = "Generation failed: " + err.message;
+                errorCard.classList.remove("d-none");
+            }
         } finally {
             clearInterval(pollTimer);
             progressCard.classList.add("d-none");

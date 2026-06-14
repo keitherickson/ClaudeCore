@@ -9,14 +9,16 @@ public class VideoController : Controller
     private readonly LtxVideoService _service;
     private readonly MaxineUpscaleService _upscaler;
     private readonly VideoSpeedService _speed;
+    private readonly LtxServerControl _ltxControl;
     private readonly LastImageStore _lastImage;
     private readonly ILogger<VideoController> _logger;
 
-    public VideoController(LtxVideoService service, MaxineUpscaleService upscaler, VideoSpeedService speed, LastImageStore lastImage, ILogger<VideoController> logger)
+    public VideoController(LtxVideoService service, MaxineUpscaleService upscaler, VideoSpeedService speed, LtxServerControl ltxControl, LastImageStore lastImage, ILogger<VideoController> logger)
     {
         _service = service;
         _upscaler = upscaler;
         _speed = speed;
+        _ltxControl = ltxControl;
         _lastImage = lastImage;
         _logger = logger;
     }
@@ -34,6 +36,28 @@ public class VideoController : Controller
     {
         _lastImage.Set(null);
         return Json(new { ok = true });
+    }
+
+    /// <summary>
+    /// Hard-stops the current generation. The LTX server's cooperative cancel can't
+    /// interrupt an in-progress video inference (no per-step hook), so to actually
+    /// free the GPU we kill and relaunch the server process.
+    /// </summary>
+    [HttpPost]
+    public IActionResult Cancel()
+    {
+        try
+        {
+            // Detached: frees the GPU now and relaunches the server, without this
+            // request blocking on (or tree-killing) the relaunched process.
+            _ltxControl.RestartDetached();
+            return Json(new { ok = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cancel (server restart) failed");
+            return Json(new { ok = false, error = ex.Message });
+        }
     }
 
     /// <summary>Connectivity + model-status probe for the page header.</summary>
@@ -83,7 +107,8 @@ public class VideoController : Controller
     }
 
     [HttpPost]
-    [RequestSizeLimit(104_857_600)] // 100 MB cap for uploaded conditioning images
+    [RequestSizeLimit(314_572_800)] // 300 MB cap (conditioning image up to 100 MB + audio up to 100 MB)
+    [RequestFormLimits(MultipartBodyLengthLimit = 314_572_800)]
     public async Task<IActionResult> Generate(
         [FromForm] string prompt,
         [FromForm] string? resolution,
@@ -99,6 +124,7 @@ public class VideoController : Controller
         [FromForm] bool speedUp,
         [FromForm] double speedFactor,
         IFormFile? image,
+        IFormFile? audioFile,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -118,6 +144,11 @@ public class VideoController : Controller
                 if (_service.IsStagedInputImage(last)) imagePath = last;
             }
 
+            // Optional own-audio track: switches the server to audio-to-video.
+            string? audioPath = null;
+            if (audioFile is { Length: > 0 })
+                audioPath = await _service.StageAudioAsync(audioFile, ct);
+
             var request = new GenerateVideoRequest
             {
                 Prompt = prompt,
@@ -129,6 +160,7 @@ public class VideoController : Controller
                 NegativePrompt = negativePrompt ?? "",
                 Audio = audio,
                 ImagePath = imagePath,
+                AudioPath = audioPath,
             };
 
             // 1. Generate + save the original.
@@ -188,11 +220,15 @@ public class VideoController : Controller
                 ok = true,
                 fileName = result.FileName,
                 savedPath = result.SavedPath,
-                mode = imagePath is null ? "text-to-video" : "image-to-video",
+                mode = audioPath is not null ? "audio-to-video" : imagePath is null ? "text-to-video" : "image-to-video",
                 inputImagePath = imagePath,
                 upscaled,
                 upscaleError,
             });
+        }
+        catch (LtxGenerationCancelledException)
+        {
+            return Json(new { ok = false, cancelled = true });
         }
         catch (LtxServerException ex)
         {
