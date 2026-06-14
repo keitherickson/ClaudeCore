@@ -12,6 +12,12 @@ public sealed class VideoSpeedOptions
     /// <summary>Path to ffmpeg.exe. The winget Gyan.FFmpeg install lands under %LOCALAPPDATA%\Microsoft\WinGet\Packages.</summary>
     public string FfmpegPath { get; set; } = "ffmpeg";
 
+    /// <summary>Where sped-up videos from the standalone /Speed page are written.</summary>
+    public string OutputDirectory { get; set; } = @"C:\Users\keith\Videos\LTX-Generated\sped-up";
+
+    /// <summary>Where uploaded source videos for the /Speed page are staged.</summary>
+    public string InputDirectory { get; set; } = @"C:\Users\keith\Videos\LTX-Generated\_speed_inputs";
+
     /// <summary>Max minutes to wait for a single re-time job.</summary>
     public int TimeoutMinutes { get; set; } = 30;
 }

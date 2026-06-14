@@ -33,7 +33,7 @@ public class UpscaleController : Controller
     [RequestFormLimits(MultipartBodyLengthLimit = 2_147_483_648)]
     public async Task<IActionResult> Run(
         [FromForm] string effect,
-        [FromForm] int resolution,
+        [FromForm] int factor,
         [FromForm] int mode,
         [FromForm] float strength,
         [FromForm] bool speedUp,
@@ -45,12 +45,33 @@ public class UpscaleController : Controller
             return BadRequest(new { ok = false, error = "Please choose a video to upscale." });
         if (!AllowedEffects.Contains(effect))
             effect = "SuperRes";
-        if (resolution <= 0)
-            resolution = 2160;
+        if (factor is not (2 or 3 or 4))
+            factor = 2;
 
         try
         {
             var input = await _service.StageInputAsync(video, ct);
+
+            // Maxine's VideoEffectsApp only accepts H.264 input; transcode HEVC/etc. first.
+            input = await _speed.EnsureH264Async(input, ct);
+
+            // SuperRes/Upscale require an output height that is an exact integer
+            // multiple of the source, so compute it from the probed source height
+            // (an absolute height the user picked could be a non-integer multiple
+            // and the SDK rejects it: "resolution not supported"). ArtifactReduction
+            // doesn't upscale, so it keeps the source height.
+            int resolution;
+            if (effect == "ArtifactReduction")
+            {
+                resolution = VideoProbe.TryGetHeight(input) ?? 1080;
+            }
+            else
+            {
+                var srcHeight = VideoProbe.TryGetHeight(input)
+                    ?? throw new InvalidOperationException("Could not read the source video's height to compute the output resolution.");
+                resolution = srcHeight * factor;
+            }
+
             var result = await _service.UpscaleAsync(input, effect, resolution, mode, strength, ct);
 
             // Optionally re-time the upscaled clip to play faster.
@@ -65,7 +86,7 @@ public class UpscaleController : Controller
                 appliedSpeed = sped.Speed;
             }
 
-            return Json(new { ok = true, fileName, savedPath, effect, speed = appliedSpeed });
+            return Json(new { ok = true, fileName, savedPath, effect, factor, height = resolution, speed = appliedSpeed });
         }
         catch (Exception ex)
         {

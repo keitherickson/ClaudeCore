@@ -1,0 +1,131 @@
+@{
+    ViewData["Title"] = "Speed Up Video";
+}
+
+<div class="row">
+    <div class="col-lg-7">
+        <h1 class="h3 mb-1">Speed Up Video</h1>
+        <p class="text-muted">
+            Re-time a video to play faster (audio is kept and re-timed when present).
+            <span id="ff-status" class="badge bg-secondary">checking…</span>
+        </p>
+
+        <form id="speed-form">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Video file</label>
+                <input type="file" name="video" id="video" class="form-control" accept="video/*" required />
+            </div>
+
+            <div class="row g-3">
+                <div class="col-6 col-md-4">
+                    <label class="form-label">Speed</label>
+                    <select name="speedFactor" id="speedFactor" class="form-select">
+                        <option value="1.5">1.5&times;</option>
+                        <option value="2" selected>2&times;</option>
+                        <option value="3">3&times;</option>
+                        <option value="4">4&times;</option>
+                    </select>
+                </div>
+            </div>
+
+            <button type="submit" id="speed-btn" class="btn btn-primary mt-3">Speed Up</button>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div id="busy-card" class="card d-none mt-4 mt-lg-0">
+            <div class="card-body">
+                <h2 class="h6 card-title mb-2">Speeding up…</h2>
+                <div class="progress" role="progressbar">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                </div>
+                <p class="text-muted small mt-2 mb-0">Re-encoding the clip — this can take a moment for long videos.</p>
+            </div>
+        </div>
+
+        <div id="result-card" class="card d-none mt-4 mt-lg-0">
+            <div class="card-body">
+                <h2 class="h6 card-title">Result</h2>
+                <video id="result-video" class="w-100 rounded border" controls></video>
+                <p id="result-path" class="text-muted small mt-2 mb-1"></p>
+                <div class="d-flex gap-2">
+                    <a id="result-download" class="btn btn-sm btn-primary" download>Download .mp4</a>
+                    <button type="button" id="clear-btn" class="btn btn-sm btn-primary">Clear</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="error-card" class="alert alert-danger d-none mt-4 mt-lg-0" role="alert"></div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    const form = document.getElementById("speed-form");
+    const btn = document.getElementById("speed-btn");
+    const statusBadge = document.getElementById("ff-status");
+    const busyCard = document.getElementById("busy-card");
+    const resultCard = document.getElementById("result-card");
+    const resultVideo = document.getElementById("result-video");
+    const resultPath = document.getElementById("result-path");
+    const resultDownload = document.getElementById("result-download");
+    const clearBtn = document.getElementById("clear-btn");
+    const errorCard = document.getElementById("error-card");
+
+    async function checkHealth() {
+        try {
+            const r = await fetch("/Speed/Health");
+            const d = await r.json();
+            if (d.ok) {
+                statusBadge.className = "badge bg-success";
+                statusBadge.textContent = "ffmpeg ready";
+            } else {
+                statusBadge.className = "badge bg-warning text-dark";
+                statusBadge.textContent = "ffmpeg not found";
+                statusBadge.title = d.error || "";
+            }
+        } catch {
+            statusBadge.className = "badge bg-danger";
+            statusBadge.textContent = "unavailable";
+        }
+    }
+
+    clearBtn.addEventListener("click", function () {
+        resultVideo.removeAttribute("src");
+        resultVideo.load();
+        resultCard.classList.add("d-none");
+    });
+
+    form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        errorCard.classList.add("d-none");
+        resultCard.classList.add("d-none");
+        busyCard.classList.remove("d-none");
+        btn.disabled = true;
+        try {
+            const data = new FormData(form);
+            const resp = await fetch("/Speed/Run", { method: "POST", body: data });
+            const result = await resp.json();
+            if (resp.ok && result.ok) {
+                const url = "/Speed/Download?name=" + encodeURIComponent(result.fileName);
+                resultVideo.src = url;
+                resultDownload.href = url;
+                resultPath.textContent = `${result.speed}x speed · saved to ${result.savedPath}`;
+                resultCard.classList.remove("d-none");
+            } else {
+                throw new Error(result.error || ("HTTP " + resp.status));
+            }
+        } catch (err) {
+            errorCard.textContent = "Speed-up failed: " + err.message;
+            errorCard.classList.remove("d-none");
+        } finally {
+            busyCard.classList.add("d-none");
+            btn.disabled = false;
+        }
+    });
+
+    checkHealth();
+})();
+</script>
+}

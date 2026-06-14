@@ -134,6 +134,10 @@ public class VideoController : Controller
             // 1. Generate + save the original.
             var result = await _service.GenerateAsync(request, ct);
 
+            // LTX emits HEVC; convert to H.264 so it plays in all browsers and feeds Maxine.
+            try { await _speed.ConvertToH264InPlaceAsync(result.SavedPath, ct); }
+            catch (Exception ex) { _logger.LogWarning(ex, "H.264 conversion of generated video failed; serving original."); }
+
             // Generation completed => remember (or clear) the starting image server-side.
             _lastImage.Set(imagePath);
 
@@ -147,13 +151,16 @@ public class VideoController : Controller
                     if (!_upscaler.IsReady(out var problem))
                         throw new InvalidOperationException(problem ?? "Upscaler is not ready.");
 
-                    var srcHeight = VideoProbe.TryGetHeight(result.SavedPath)
+                    // Maxine's VideoEffectsApp only accepts H.264 input; transcode HEVC/etc. first.
+                    var upscaleSource = await _speed.EnsureH264Async(result.SavedPath, ct);
+
+                    var srcHeight = VideoProbe.TryGetHeight(upscaleSource)
                         ?? throw new InvalidOperationException("Could not read the generated video's height.");
 
                     var factor = upscaleFactor is 2 or 3 or 4 ? upscaleFactor : 2;
                     var target = srcHeight * factor; // exact 2x/3x/4x => valid SuperRes engine
 
-                    var up = await _upscaler.UpscaleAsync(result.SavedPath, "SuperRes", target, upscaleMode, 0f, ct);
+                    var up = await _upscaler.UpscaleAsync(upscaleSource, "SuperRes", target, upscaleMode, 0f, ct);
 
                     // Optionally re-time the upscaled clip to play faster.
                     var upFileName = up.FileName;

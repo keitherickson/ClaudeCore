@@ -25,13 +25,14 @@
                         <option value="ArtifactReduction">Artifact Reduction</option>
                     </select>
                 </div>
-                <div class="col-6 col-md-4">
-                    <label class="form-label">Output height</label>
-                    <select name="resolution" id="resolution" class="form-select">
-                        <option value="1080">1080p</option>
-                        <option value="1440">1440p</option>
-                        <option value="2160" selected>2160p (4K)</option>
+                <div class="col-6 col-md-4" id="factor-wrap">
+                    <label class="form-label">Upscale factor</label>
+                    <select name="factor" id="factor" class="form-select">
+                        <option value="2" selected>2&times;</option>
+                        <option value="3">3&times;</option>
+                        <option value="4">4&times;</option>
                     </select>
+                    <div class="form-text">Output height = source &times; factor.</div>
                 </div>
                 <div class="col-6 col-md-4" id="mode-wrap">
                     <label class="form-label">Mode</label>
@@ -95,6 +96,7 @@
     const effectSel = document.getElementById("effect");
     const modeWrap = document.getElementById("mode-wrap");
     const strengthWrap = document.getElementById("strength-wrap");
+    const factorWrap = document.getElementById("factor-wrap");
     const speedUpChk = document.getElementById("speedUp");
     const speedFactorSel = document.getElementById("speedFactor");
     const busyCard = document.getElementById("busy-card");
@@ -109,6 +111,8 @@
         // SuperRes/ArtifactReduction use --mode; Upscale uses --strength.
         modeWrap.classList.toggle("d-none", e === "Upscale");
         strengthWrap.classList.toggle("d-none", e !== "Upscale");
+        // ArtifactReduction doesn't change resolution, so no factor.
+        factorWrap.classList.toggle("d-none", e === "ArtifactReduction");
     }
     effectSel.addEventListener("change", syncEffectFields);
     syncEffectFields();
@@ -150,8 +154,9 @@
                 const url = "/Upscale/Download?name=" + encodeURIComponent(result.fileName);
                 resultVideo.src = url;
                 resultDownload.href = url;
+                const sizeNote = result.height ? ` · ${result.height}p` : "";
                 const speedNote = result.speed ? ` · ${result.speed}x speed` : "";
-                resultPath.textContent = `${result.effect}${speedNote} · saved to ${result.savedPath}`;
+                resultPath.textContent = `${result.effect}${sizeNote}${speedNote} · saved to ${result.savedPath}`;
                 resultCard.classList.remove("d-none");
             } else {
                 throw new Error(result.error || ("HTTP " + resp.status));
