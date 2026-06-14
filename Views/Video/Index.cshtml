@@ -14,7 +14,10 @@
 
         <form id="gen-form">
             <div class="mb-3">
-                <label class="form-label fw-semibold">Prompt</label>
+                <label class="form-label fw-semibold">
+                    Prompt
+                    <a href="#" id="clear-saved-prompt" class="ms-2 small fw-normal d-none">clear saved prompt</a>
+                </label>
                 <textarea name="prompt" class="form-control" rows="3" required
                           placeholder="A red fox trotting through a snowy forest, cinematic lighting"></textarea>
             </div>
@@ -96,8 +99,8 @@
                 <div class="col-6 col-md-4">
                     <label class="form-label">Source quality</label>
                     <select name="upscaleMode" id="upscaleMode" class="form-select">
-                        <option value="0" selected>0 — compressed</option>
-                        <option value="1">1 — clean</option>
+                        <option value="1" selected>Clean</option>
+                        <option value="0">Compressed</option>
                     </select>
                 </div>
                 <div class="col-12 col-md-4">
@@ -282,9 +285,15 @@
 
     // --- Persisted prompt (localStorage) + server-remembered starting image ---
     const PROMPT_KEY = "keithvision.prompt";
+    const clearSavedPromptLink = document.getElementById("clear-saved-prompt");
     const imageInput = document.getElementById("image");
     const savedImageBox = document.getElementById("saved-image");
     const savedImagePathEl = document.getElementById("saved-image-path");
+
+    // Show the "clear saved prompt" link only when a prompt is saved in localStorage.
+    function showSavedPrompt() {
+        clearSavedPromptLink.classList.toggle("d-none", !localStorage.getItem(PROMPT_KEY));
+    }
     // The last image is remembered server-side; rendered here so it shows on load.
     let savedImagePath = @Json.Serialize(ViewData["LastImage"]);
 
@@ -298,8 +307,17 @@
     (function restorePersisted() {
         const p = localStorage.getItem(PROMPT_KEY);
         if (p) form.elements["prompt"].value = p;
+        showSavedPrompt();
         showSavedImage();
     })();
+
+    // Clear the remembered prompt (and empty the field); the link then disappears.
+    clearSavedPromptLink.addEventListener("click", function (e) {
+        e.preventDefault();
+        localStorage.removeItem(PROMPT_KEY);
+        form.elements["prompt"].value = "";
+        showSavedPrompt();
+    });
 
     // A newly chosen file takes precedence over the saved image for this run.
     imageInput.addEventListener("change", showSavedImage);
@@ -399,6 +417,7 @@
                 // Generation completed => persist prompt (localStorage); the image is
                 // already remembered server-side, just sync the UI.
                 localStorage.setItem(PROMPT_KEY, form.elements["prompt"].value);
+                showSavedPrompt();
                 savedImagePath = result.inputImagePath || null;
                 if (savedImagePath) imageInput.value = ""; // clear picker; server reuses it next time
                 showSavedImage();
