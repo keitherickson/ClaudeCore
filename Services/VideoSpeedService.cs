@@ -31,6 +31,12 @@ public sealed class VideoSpeedService
 
     public string OutputDirectory => _o.OutputDirectory;
 
+    /// <summary>Staging dir for uploaded videos (Speed page).</summary>
+    public string InputDirectory => _o.InputDirectory;
+
+    /// <summary>Configured ffmpeg path (for the admin badge).</summary>
+    public string FfmpegPath => _o.FfmpegPath;
+
     /// <summary>Reports whether ffmpeg looks runnable, for a status badge.</summary>
     public bool IsReady(out string? problem)
     {

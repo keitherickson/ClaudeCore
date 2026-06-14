@@ -26,6 +26,9 @@ public sealed class LtxVideoService
 
     public string OutputDirectory => _options.OutputDirectory;
 
+    /// <summary>Staging dir for uploaded conditioning images.</summary>
+    public string InputDirectory => _options.InputDirectory;
+
     public Task<LtxHealth?> GetHealthAsync(CancellationToken ct = default) => _client.GetHealthAsync(ct);
 
     public Task<GenerationProgress?> GetProgressAsync(CancellationToken ct = default) => _client.GetProgressAsync(ct);

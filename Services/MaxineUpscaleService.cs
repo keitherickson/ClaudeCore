@@ -26,6 +26,9 @@ public sealed class MaxineUpscaleService
 
     public string OutputDirectory => _o.OutputDirectory;
 
+    /// <summary>Staging dir for uploaded source videos.</summary>
+    public string InputDirectory => _o.InputDirectory;
+
     /// <summary>Reports whether the SDK looks installed/configured, for a status badge.</summary>
     public bool IsReady(out string? problem)
     {

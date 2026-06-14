@@ -17,7 +17,7 @@
 <div class="row g-3">
     <!-- LTX video server -->
     <div class="col-lg-6">
-        <div class="card h-100">
+        <div class="card mb-3">
             <div class="card-body">
                 <div class="d-flex align-items-center justify-content-between">
                     <h2 class="h5 mb-0">LTX-2.3 Video Server</h2>
@@ -40,6 +40,24 @@
                 <pre id="restart-output" class="d-none small mt-2 mb-0 p-2 bg-dark border rounded" style="white-space: pre-wrap;"></pre>
             </div>
         </div>
+
+        <!-- GPU (live from nvidia-smi) -->
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h2 class="h5 mb-0">GPU</h2>
+                    <span id="gpu-badge" class="badge bg-secondary">…</span>
+                </div>
+                <dl class="row mb-0 mt-3 small">
+                    <dt class="col-5 text-muted">Name</dt><dd class="col-7" id="gpu-name">—</dd>
+                    <dt class="col-5 text-muted">VRAM</dt><dd class="col-7" id="gpu-vram">—</dd>
+                    <dt class="col-5 text-muted">Utilization</dt><dd class="col-7" id="gpu-util">—</dd>
+                    <dt class="col-5 text-muted">Temperature</dt><dd class="col-7" id="gpu-temp">—</dd>
+                </dl>
+                <div id="gpu-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
+                <p class="text-muted small mt-2 mb-0">Live from nvidia-smi — works even when the LTX server is down.</p>
+            </div>
+        </div>
     </div>
 
     <!-- Maxine + app -->
@@ -55,6 +73,18 @@
             </div>
         </div>
 
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h2 class="h5 mb-0">ffmpeg</h2>
+                    <span id="ffmpeg-badge" class="badge bg-secondary">…</span>
+                </div>
+                <div id="ffmpeg-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
+                <p class="text-muted small mt-2 mb-1">On-demand — used for speed-up + H.264 conversion.</p>
+                <div class="small text-muted text-break" id="ffmpeg-path">—</div>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-body">
                 <h2 class="h5 mb-3">Web App</h2>
@@ -64,6 +94,19 @@
                     <dt class="col-5 text-muted">Uptime</dt><dd class="col-7" id="app-uptime">—</dd>
                     <dt class="col-5 text-muted">Output disk</dt><dd class="col-7" id="app-disk">—</dd>
                 </dl>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Staging files</h2>
+                <p class="text-muted small mb-2">Uploaded inputs + temp transcodes — safe to clear (your finished videos are not touched).</p>
+                <dl class="row mb-2 small">
+                    <dt class="col-5 text-muted">Files</dt><dd class="col-7" id="staging-files">—</dd>
+                    <dt class="col-5 text-muted">Size</dt><dd class="col-7" id="staging-size">—</dd>
+                </dl>
+                <button id="clean-btn" class="btn btn-primary btn-sm">Clean staging files</button>
+                <span id="clean-status" class="ms-2 small text-muted"></span>
             </div>
         </div>
     </div>
@@ -128,6 +171,31 @@
             const mxErr = $("maxine-error");
             mxErr.classList.toggle("d-none", !mx.error);
             if (mx.error) mxErr.textContent = mx.error;
+
+            // ffmpeg
+            const ff = d.ffmpeg || {};
+            badge($("ffmpeg-badge"), ff.ready, "ready", "not found");
+            const ffErr = $("ffmpeg-error");
+            ffErr.classList.toggle("d-none", !ff.error);
+            if (ff.error) ffErr.textContent = ff.error;
+            $("ffmpeg-path").textContent = ff.path || "—";
+
+            // GPU (nvidia-smi)
+            const gpu = d.gpu || {};
+            badge($("gpu-badge"), gpu.available, "online", "n/a");
+            $("gpu-name").textContent = gpu.available ? (gpu.name || "—") : "—";
+            $("gpu-vram").textContent = (gpu.vramUsedMb != null && gpu.vramTotalMb != null)
+                ? `${gpu.vramUsedMb} / ${gpu.vramTotalMb} MB` : "—";
+            $("gpu-util").textContent = gpu.utilizationPct != null ? gpu.utilizationPct + "%" : "—";
+            $("gpu-temp").textContent = gpu.temperatureC != null ? gpu.temperatureC + "°C" : "—";
+            const gpuErr = $("gpu-error");
+            gpuErr.classList.toggle("d-none", !gpu.error);
+            if (gpu.error) gpuErr.textContent = gpu.error;
+
+            // Staging
+            const st = d.staging || {};
+            $("staging-files").textContent = st.files != null ? st.files : "—";
+            $("staging-size").textContent = st.mb != null ? st.mb + " MB" : "—";
 
             // App
             const app = d.app || {};
@@ -198,6 +266,28 @@
             status.textContent = "Restart failed: " + err.message;
             await new Promise(res => setTimeout(res, 800));
             progress.classList.add("d-none");
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // Clean staging files: confirm, POST, then refresh the status.
+    $("clean-btn").addEventListener("click", async function () {
+        if (!confirm("Delete staged uploads and temp transcodes? Finished videos are not affected.")) return;
+        const btn = $("clean-btn");
+        const status = $("clean-status");
+        btn.disabled = true;
+        status.textContent = "Cleaning…";
+        try {
+            const r = await fetch("/Admin/CleanStaging", {
+                method: "POST",
+                headers: { "RequestVerificationToken": token }
+            });
+            const d = await r.json();
+            status.textContent = d.ok ? `Removed ${d.files} file(s), freed ${d.mb} MB.` : "Cleanup failed.";
+            await loadStatus();
+        } catch (err) {
+            status.textContent = "Cleanup failed: " + err.message;
         } finally {
             btn.disabled = false;
         }
