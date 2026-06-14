@@ -66,16 +66,26 @@
         if (!el) return;
         async function poll() {
             try {
-                const r = await fetch("/Admin/Gpu");
-                const g = await r.json();
-                if (g && g.available) {
+                const r = await fetch("/Admin/SystemStats");
+                const d = await r.json();
+                const g = d.gpu || {};
+                const c = d.cpu || {};
+                const mem = d.memory || {};
+                const parts = [];
+                if (g.available) {
                     const vram = (g.vramUsedMb != null && g.vramTotalMb != null) ? `${g.vramUsedMb} / ${g.vramTotalMb} MB` : "";
                     const util = g.utilizationPct != null ? `${g.utilizationPct}%` : "";
                     const temp = g.temperatureC != null ? `${g.temperatureC}°C` : "";
-                    el.textContent = "GPU: " + [g.name, vram, util, temp].filter(Boolean).join(" · ");
+                    parts.push("GPU: " + [g.name, vram, util, temp].filter(Boolean).join(" · "));
                 } else {
-                    el.textContent = "GPU: n/a";
+                    parts.push("GPU: n/a");
                 }
+                if (c.utilizationPct != null) parts.push("CPU: " + c.utilizationPct + "%");
+                if (mem.available && mem.totalMb) {
+                    const gb = mb => (mb / 1024).toFixed(1);
+                    parts.push(`RAM: ${gb(mem.usedMb)} / ${gb(mem.totalMb)} GB`);
+                }
+                el.textContent = parts.join("  |  ");
             } catch {
                 el.textContent = "GPU: n/a";
             }

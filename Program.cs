@@ -14,6 +14,8 @@ builder.Services.Configure<VideoDefaultsOptions>(builder.Configuration.GetSectio
 
 // Live GPU footer readout ("Gpu" section).
 builder.Services.Configure<GpuOptions>(builder.Configuration.GetSection(GpuOptions.SectionName));
+// Samples system CPU utilization for the footer readout.
+builder.Services.AddSingleton<SystemStatsService>();
 
 // LTX-2 local video generation: bind options, register the typed HttpClient
 // (with a generous timeout since /api/generate blocks until the video is done),

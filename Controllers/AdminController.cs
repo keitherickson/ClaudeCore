@@ -20,6 +20,7 @@ public class AdminController : Controller
     private readonly LtxServerControl _ltxControl;
     private readonly MaxineUpscaleService _maxine;
     private readonly VideoSpeedService _speed;
+    private readonly SystemStatsService _stats;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
@@ -27,12 +28,14 @@ public class AdminController : Controller
         LtxServerControl ltxControl,
         MaxineUpscaleService maxine,
         VideoSpeedService speed,
+        SystemStatsService stats,
         ILogger<AdminController> logger)
     {
         _ltx = ltx;
         _ltxControl = ltxControl;
         _maxine = maxine;
         _speed = speed;
+        _stats = stats;
         _logger = logger;
     }
 
@@ -101,9 +104,10 @@ public class AdminController : Controller
         });
     }
 
-    /// <summary>Lightweight live GPU snapshot (nvidia-smi only) — polled by the footer on every page.</summary>
+    /// <summary>Lightweight live GPU + CPU snapshot — polled by the footer on every page.</summary>
     [HttpGet]
-    public async Task<IActionResult> Gpu(CancellationToken ct) => Json(await GetGpuAsync(ct));
+    public async Task<IActionResult> SystemStats(CancellationToken ct)
+        => Json(new { gpu = await GetGpuAsync(ct), cpu = _stats.Cpu, memory = _stats.Memory });
 
     /// <summary>Stops and restarts the local LTX server. Returns the script output.</summary>
     [HttpPost]
