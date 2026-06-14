@@ -43,15 +43,13 @@ builder.Services.AddScoped<VideoSpeedService>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Configure the HTTP request pipeline. This app is localhost-only and binds HTTP
+// endpoints only (see Kestrel config), so there's no HSTS/HTTPS-redirect to do.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
 }
 
-app.UseHttpsRedirection();
 app.UseRouting();
 
 app.UseAuthorization();

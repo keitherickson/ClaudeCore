@@ -184,7 +184,11 @@ public class VideoController : Controller
                         throw new InvalidOperationException(problem ?? "Upscaler is not ready.");
 
                     // Maxine's VideoEffectsApp only accepts H.264 input; transcode HEVC/etc. first.
+                    // The saved file is already H.264 (converted in place above), so this is
+                    // normally a no-op; if it does transcode, delete the %TEMP% copy after use.
                     var upscaleSource = await _speed.EnsureH264Async(result.SavedPath, ct);
+                    var upscaleTemp = string.Equals(upscaleSource, result.SavedPath, StringComparison.OrdinalIgnoreCase)
+                        ? null : upscaleSource;
 
                     var srcHeight = VideoProbe.TryGetHeight(upscaleSource)
                         ?? throw new InvalidOperationException("Could not read the generated video's height.");
@@ -193,6 +197,8 @@ public class VideoController : Controller
                     var target = srcHeight * factor; // exact 2x/3x/4x => valid SuperRes engine
 
                     var up = await _upscaler.UpscaleAsync(upscaleSource, "SuperRes", target, upscaleMode, 0f, ct);
+                    if (upscaleTemp != null)
+                        try { System.IO.File.Delete(upscaleTemp); } catch { /* best effort */ }
 
                     // Optionally re-time the upscaled clip to play faster.
                     var upFileName = up.FileName;

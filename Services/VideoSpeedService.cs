@@ -295,8 +295,7 @@ public sealed class VideoSpeedService
 
             using var proc = new Process { StartInfo = psi };
             proc.Start();
-            var stdout = (await proc.StandardOutput.ReadToEndAsync(ct)).Trim();
-            await proc.WaitForExitAsync(ct);
+            var stdout = (await ReadProbeOutputAsync(proc, ct)).Trim();
             return string.IsNullOrWhiteSpace(stdout) ? null : stdout;
         }
         catch
@@ -324,13 +323,34 @@ public sealed class VideoSpeedService
 
             using var proc = new Process { StartInfo = psi };
             proc.Start();
-            var stdout = await proc.StandardOutput.ReadToEndAsync(ct);
-            await proc.WaitForExitAsync(ct);
+            var stdout = await ReadProbeOutputAsync(proc, ct);
             return !string.IsNullOrWhiteSpace(stdout);
         }
         catch
         {
             return false; // if we can't probe, fall back to video-only
+        }
+    }
+
+    /// <summary>
+    /// Reads a running ffprobe's stdout with a hard timeout, killing the process
+    /// if it hangs (a wedged probe must never block a generation/upscale request).
+    /// </summary>
+    private static async Task<string> ReadProbeOutputAsync(Process proc, CancellationToken ct)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            // ffprobe closes stdout on exit, so bounding the read bounds the whole call.
+            var stdout = await proc.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            await proc.WaitForExitAsync(timeoutCts.Token);
+            return stdout;
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            throw;
         }
     }
 

@@ -48,12 +48,15 @@ public class UpscaleController : Controller
         if (factor is not (2 or 3 or 4))
             factor = 2;
 
+        string? h264Temp = null;
         try
         {
-            var input = await _service.StageInputAsync(video, ct);
+            var staged = await _service.StageInputAsync(video, ct);
 
             // Maxine's VideoEffectsApp only accepts H.264 input; transcode HEVC/etc. first.
-            input = await _speed.EnsureH264Async(input, ct);
+            var input = await _speed.EnsureH264Async(staged, ct);
+            // A different path means a temp transcode in %TEMP% we own and must delete.
+            if (!string.Equals(input, staged, StringComparison.OrdinalIgnoreCase)) h264Temp = input;
 
             // SuperRes/Upscale require an output height that is an exact integer
             // multiple of the source, so compute it from the probed source height
@@ -92,6 +95,11 @@ public class UpscaleController : Controller
         {
             _logger.LogError(ex, "Maxine upscale failed");
             return StatusCode(500, new { ok = false, error = ex.Message });
+        }
+        finally
+        {
+            if (h264Temp != null)
+                try { System.IO.File.Delete(h264Temp); } catch { /* best effort */ }
         }
     }
 

@@ -192,10 +192,22 @@ public class AdminController : Controller
             }) psi.ArgumentList.Add(a);
 
             using var proc = Process.Start(psi)!;
-            var outText = await proc.StandardOutput.ReadToEndAsync(ct);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(5));
-            await proc.WaitForExitAsync(cts.Token);
+
+            string outText;
+            try
+            {
+                // Bound the read itself (not just WaitForExit) — nvidia-smi closes
+                // stdout on exit, so a hung driver would otherwise block forever.
+                outText = await proc.StandardOutput.ReadToEndAsync(cts.Token);
+                await proc.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                return new { available = false, error = "nvidia-smi timed out" };
+            }
 
             var line = outText.Split('\n').FirstOrDefault(l => !string.IsNullOrWhiteSpace(l));
             if (line is null) return new { available = false, error = "no GPU reported" };
