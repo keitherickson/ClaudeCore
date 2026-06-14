@@ -23,12 +23,18 @@ builder.Services.AddHttpClient<LtxVideoClient>((sp, client) =>
     client.Timeout = TimeSpan.FromMinutes(opts.GenerationTimeoutMinutes);
 });
 builder.Services.AddScoped<LtxVideoService>();
+// Process control for the LTX server (admin page: status + restart).
+builder.Services.AddSingleton<LtxServerControl>();
 // Remembers the last-used starting image across requests/restarts.
 builder.Services.AddSingleton<LastImageStore>();
 
 // NVIDIA Maxine upscaling: shells out to the SDK's VideoEffectsApp.exe per job.
 builder.Services.Configure<MaxineUpscaleOptions>(builder.Configuration.GetSection(MaxineUpscaleOptions.SectionName));
 builder.Services.AddScoped<MaxineUpscaleService>();
+
+// Optional "play faster" step: re-times a clip with ffmpeg after upscaling.
+builder.Services.Configure<VideoSpeedOptions>(builder.Configuration.GetSection(VideoSpeedOptions.SectionName));
+builder.Services.AddScoped<VideoSpeedService>();
 
 var app = builder.Build();
 

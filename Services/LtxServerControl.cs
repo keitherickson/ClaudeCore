@@ -1,0 +1,98 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.NetworkInformation;
+using Microsoft.Extensions.Options;
+
+namespace ClaudeCore.Services;
+
+/// <summary>Outcome of a restart attempt: whether it succeeded plus the script's console output.</summary>
+public sealed record RestartResult(bool Ok, string Output);
+
+/// <summary>
+/// Controls the local LTX-2.3 inference server process (the python server on
+/// port 8765). Used by the admin page to report whether the port is listening
+/// and to stop+restart the server via tools/restart-ltx-server.ps1.
+/// </summary>
+public sealed class LtxServerControl
+{
+    private readonly LtxVideoOptions _options;
+    private readonly ILogger<LtxServerControl> _logger;
+
+    public LtxServerControl(IOptions<LtxVideoOptions> options, ILogger<LtxServerControl> logger)
+    {
+        _options = options.Value;
+        _logger = logger;
+    }
+
+    /// <summary>Port parsed from Ltx:BaseUrl (defaults to 8765 if it can't be read).</summary>
+    public int Port => Uri.TryCreate(_options.BaseUrl, UriKind.Absolute, out var u) && u.Port > 0 ? u.Port : 8765;
+
+    /// <summary>True if anything is currently listening on the LTX port (cheap, no HTTP call).</summary>
+    public bool IsPortListening()
+    {
+        var port = Port;
+        var listeners = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
+        foreach (var ep in listeners)
+        {
+            if (ep.Port == port &&
+                (IPAddress.IsLoopback(ep.Address) || ep.Address.Equals(IPAddress.Any)))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Runs the restart script (stop the process on the port, relaunch it, wait
+    /// for it to start listening). Blocks until the script finishes or a hard
+    /// 90s cap elapses. Returns the script's combined output either way.
+    /// </summary>
+    public async Task<RestartResult> RestartAsync(CancellationToken ct = default)
+    {
+        var script = _options.RestartScriptPath;
+        if (!File.Exists(script))
+            return new RestartResult(false, $"Restart script not found at {script}");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            ArgumentList =
+            {
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", script, "-Port", Port.ToString()
+            },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        _logger.LogInformation("Restarting LTX server via {Script} on port {Port}", script, Port);
+
+        using var proc = new Process { StartInfo = psi };
+        var stdout = new System.Text.StringBuilder();
+        var stderr = new System.Text.StringBuilder();
+        proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
+        proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+
+        proc.Start();
+        proc.BeginOutputReadLine();
+        proc.BeginErrorReadLine();
+
+        using var cap = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cap.CancelAfter(TimeSpan.FromSeconds(90));
+        try
+        {
+            await proc.WaitForExitAsync(cap.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            return new RestartResult(false, "Restart timed out after 90s.\n" + stdout + stderr);
+        }
+
+        var output = (stdout.ToString() + stderr.ToString()).Trim();
+        var ok = proc.ExitCode == 0;
+        if (!ok) _logger.LogWarning("LTX restart script exited with code {Code}: {Output}", proc.ExitCode, output);
+        return new RestartResult(ok, output);
+    }
+}

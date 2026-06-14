@@ -22,6 +22,7 @@ Every external thing that has to be downloaded, in one place.
 | LTX Desktop (bundled engine + weights) | https://ltx.io/ltx-desktop · repo: https://github.com/Lightricks/LTX-Desktop | LTX generation | ✅ installed |
 | LTX-2.3 model weights | https://huggingface.co/Lightricks/LTX-2.3 | LTX generation | ✅ downloaded |
 | Gemma text encoder weights | https://huggingface.co/Lightricks/gemma-3-12b-it-qat-q4_0-unquantized | LTX generation | ✅ downloaded |
+| ffmpeg (Gyan full build) | `winget install Gyan.FFmpeg` · https://www.gyan.dev/ffmpeg/builds/ | "play faster" re-time | ✅ installed (8.1.1) |
 | NVIDIA Maxine Video Effects SDK redistributable | https://www.nvidia.com/broadcast-sdk-resources | upscaling | ✅ installed |
 | Maxine VFX SDK source (samples/exe) | https://github.com/NVIDIA-Maxine/Maxine-VFX-SDK | upscaling | ✅ cloned |
 | VS 2022 C++ Build Tools (fallback) | https://visualstudio.microsoft.com/downloads/ | optional recompile | ◻️ optional |
@@ -126,6 +127,8 @@ Super-resolution up to 4K on the RTX 5090 via the **[NVIDIA Maxine Video Effects
 
 **Effects / limits:** `SuperRes` (model, mode 0=compressed / 1=clean) needs output height = an **integer 2×/3×/4×** of the source (e.g. 1080p→2160 only); `Upscale` (fast, `--strength`) supports 1.33/1.5/2/3/4×; `ArtifactReduction`.
 
+**Optional "Play faster" (re-time):** both the Generate flow and the `/Upscale` page have a **Play faster** toggle (1.5×/2×/3×/4×) that runs **after** upscaling — it re-times the upscaled clip with **ffmpeg** (`setpts`, re-encoded to H.264) and saves a `…_xN.mp4` next to the upscaled file. Maxine output is video-only (OpenCV writer drops audio), so the re-time is video-only (`-an`). Needs ffmpeg (`winget install Gyan.FFmpeg`); the exe path is configurable via `appsettings.json` → `VideoSpeed:FfmpegPath`. Code: `VideoSpeedService` / `VideoSpeedOptions`. Validated the re-time command (5.04 s → 2.58 s at 2×).
+
 **Optional/insurance:** [VS 2022 C++ Build Tools](https://visualstudio.microsoft.com/downloads/) were installed as a fallback in case the prebuilt exe ever needs recompiling — turned out unnecessary.
 
 ---
@@ -188,6 +191,20 @@ Reach the app at a friendly name **on this machine** (not the public internet; n
 
 ---
 
+## 5d. Admin dashboard — /Admin ✅
+
+A local operations page (nav link **Admin**) showing the health of each moving part, plus a one-click recovery for the LTX server.
+
+- **What it shows** (`/Admin`, polled from `/Admin/Status`): LTX server — reachable, port `:8765` listening, model loaded, GPU/VRAM (from `/health`); Maxine — SDK ready/not-ready; Web App — assembly version, machine, uptime; Output disk — free/total GB on the output drive.
+- **Restart LTX server** button → `POST /Admin/RestartLtx` runs `tools/restart-ltx-server.ps1`: kills whatever holds the port, waits for it to free, relaunches the server hidden with the same env/log contract as `start-keithvision.ps1`, then waits for the port to listen again (~30 s). Recovers a hung/stopped server without touching LTX Desktop, while the web app keeps running.
+- **No separate auth** — Kestrel binds `127.0.0.1`, same localhost trust model as the rest of the site.
+
+**Code:** `AdminController`, `LtxServerControl` (port check + restart), `LtxVideoClient.GetHealthRawAsync`, `Views/Admin/Index.cshtml`; registered `LtxServerControl` (singleton) in `Program.cs`; nav link in `_Layout`. **Config** — `appsettings.json` → `Ltx:RestartScriptPath` (`…\tools\restart-ltx-server.ps1`).
+
+**Validated:** `/Admin` HTTP 200; `/Admin/Status` returns live app/Maxine/disk health (LTX correctly shown offline when its server isn't running). Restart-button path not yet exercised on a live server.
+
+---
+
 ## 6. Deferred / future ⏸️
 
 - **SeedVR2 upscaling** — paused (Blackwell + ~80 GB VRAM blockers on the official repo). Links if revisited: source [ByteDance-Seed/SeedVR](https://github.com/ByteDance-Seed/SeedVR), weights [ByteDance-Seed/SeedVR2-3B](https://huggingface.co/ByteDance-Seed/SeedVR2-3B). Maxine (section 4) chosen instead.
@@ -204,3 +221,5 @@ Reach the app at a friendly name **on this machine** (not the public internet; n
 - **2026-06-13** — Persistence: prompt remembered in browser localStorage; last starting image remembered **server-side** (`LastImageStore`, persisted to a state file) and **reused automatically** for the next generation. Both saved only when a generation completes.
 - **2026-06-13** — **Auto-start at logon**: published a Release build to `C:\ClaudeCore\KeithVision`, added `tools/start-keithvision.ps1`, and registered the "KeithVision Startup" scheduled task (web app + LTX server, background). Validated via Start-ScheduledTask (both services up, result 0x0).
 - **2026-06-13** — Added `tools/publish-keithvision.ps1` (+ `.cmd`) one-command re-publish; "Clear Video" button on the result; **local domain**: app binds port 80 (Kestrel config), `tools/add-keithvision-host.ps1` maps www.keithvision.com → 127.0.0.1 (run as admin) for this-PC access.
+- **2026-06-13** — **Admin dashboard** (`/Admin`): live health of LTX server (port/model/GPU/VRAM), Maxine SDK readiness, web-app version/uptime, and output-disk space, plus a **Restart LTX server** button (`tools/restart-ltx-server.ps1`) to recover a hung server in place. New `AdminController` + `LtxServerControl`; `Ltx:RestartScriptPath` config. Validated `/Admin` + `/Admin/Status` (LTX shown offline correctly when its server is down). Added a client-side progress bar to the restart (shows during, hides when done). All buttons standardized to `btn-primary`.
+- **2026-06-13** — **"Play faster" re-time**: optional toggle (1.5×/2×/3×/4×) on the Generate flow and `/Upscale` that runs *after* upscaling, re-timing the upscaled clip with **ffmpeg** (`setpts`, H.264) and saving a `…_xN.mp4`. Installed ffmpeg (winget Gyan.FFmpeg 8.1.1); new `VideoSpeedService`/`VideoSpeedOptions` + `VideoSpeed:FfmpegPath` config. Validated the re-time (5.04 s → 2.58 s at 2×).

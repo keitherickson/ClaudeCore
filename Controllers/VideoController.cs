@@ -8,13 +8,15 @@ public class VideoController : Controller
 {
     private readonly LtxVideoService _service;
     private readonly MaxineUpscaleService _upscaler;
+    private readonly VideoSpeedService _speed;
     private readonly LastImageStore _lastImage;
     private readonly ILogger<VideoController> _logger;
 
-    public VideoController(LtxVideoService service, MaxineUpscaleService upscaler, LastImageStore lastImage, ILogger<VideoController> logger)
+    public VideoController(LtxVideoService service, MaxineUpscaleService upscaler, VideoSpeedService speed, LastImageStore lastImage, ILogger<VideoController> logger)
     {
         _service = service;
         _upscaler = upscaler;
+        _speed = speed;
         _lastImage = lastImage;
         _logger = logger;
     }
@@ -94,6 +96,8 @@ public class VideoController : Controller
         [FromForm] bool upscale,
         [FromForm] int upscaleFactor,
         [FromForm] int upscaleMode,
+        [FromForm] bool speedUp,
+        [FromForm] double speedFactor,
         IFormFile? image,
         CancellationToken ct)
     {
@@ -150,7 +154,20 @@ public class VideoController : Controller
                     var target = srcHeight * factor; // exact 2x/3x/4x => valid SuperRes engine
 
                     var up = await _upscaler.UpscaleAsync(result.SavedPath, "SuperRes", target, upscaleMode, 0f, ct);
-                    upscaled = new { fileName = up.FileName, savedPath = up.SavedPath, factor, height = target };
+
+                    // Optionally re-time the upscaled clip to play faster.
+                    var upFileName = up.FileName;
+                    var upSavedPath = up.SavedPath;
+                    double? appliedSpeed = null;
+                    if (speedUp && speedFactor > 1.0)
+                    {
+                        var sped = await _speed.RetimeAsync(up.SavedPath, speedFactor, ct);
+                        upFileName = sped.FileName;
+                        upSavedPath = sped.SavedPath;
+                        appliedSpeed = sped.Speed;
+                    }
+
+                    upscaled = new { fileName = upFileName, savedPath = upSavedPath, factor, height = target, speed = appliedSpeed };
                 }
                 catch (Exception ex)
                 {

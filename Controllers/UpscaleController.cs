@@ -8,11 +8,13 @@ public class UpscaleController : Controller
     private static readonly string[] AllowedEffects = { "SuperRes", "Upscale", "ArtifactReduction" };
 
     private readonly MaxineUpscaleService _service;
+    private readonly VideoSpeedService _speed;
     private readonly ILogger<UpscaleController> _logger;
 
-    public UpscaleController(MaxineUpscaleService service, ILogger<UpscaleController> logger)
+    public UpscaleController(MaxineUpscaleService service, VideoSpeedService speed, ILogger<UpscaleController> logger)
     {
         _service = service;
+        _speed = speed;
         _logger = logger;
     }
 
@@ -34,6 +36,8 @@ public class UpscaleController : Controller
         [FromForm] int resolution,
         [FromForm] int mode,
         [FromForm] float strength,
+        [FromForm] bool speedUp,
+        [FromForm] double speedFactor,
         IFormFile? video,
         CancellationToken ct)
     {
@@ -48,7 +52,20 @@ public class UpscaleController : Controller
         {
             var input = await _service.StageInputAsync(video, ct);
             var result = await _service.UpscaleAsync(input, effect, resolution, mode, strength, ct);
-            return Json(new { ok = true, fileName = result.FileName, savedPath = result.SavedPath, effect });
+
+            // Optionally re-time the upscaled clip to play faster.
+            var fileName = result.FileName;
+            var savedPath = result.SavedPath;
+            double? appliedSpeed = null;
+            if (speedUp && speedFactor > 1.0)
+            {
+                var sped = await _speed.RetimeAsync(result.SavedPath, speedFactor, ct);
+                fileName = sped.FileName;
+                savedPath = sped.SavedPath;
+                appliedSpeed = sped.Speed;
+            }
+
+            return Json(new { ok = true, fileName, savedPath, effect, speed = appliedSpeed });
         }
         catch (Exception ex)
         {

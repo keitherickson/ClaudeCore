@@ -32,6 +32,8 @@ public sealed class LtxVideoService
 
     public Task<string> GetModelSpecsRawAsync(CancellationToken ct = default) => _client.GetModelSpecsRawAsync(ct);
 
+    public Task<string> GetHealthRawAsync(CancellationToken ct = default) => _client.GetHealthRawAsync(ct);
+
     /// <summary>Saves an uploaded conditioning image to a local path the server can open, and returns that path.</summary>
     public async Task<string> StageImageAsync(IFormFile image, CancellationToken ct = default)
     {

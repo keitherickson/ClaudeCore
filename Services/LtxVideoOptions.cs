@@ -19,4 +19,11 @@ public sealed class LtxVideoOptions
 
     /// <summary>Max minutes to wait for a single generation (video gen can take minutes).</summary>
     public int GenerationTimeoutMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// PowerShell script the admin page runs to stop+restart the LTX server.
+    /// Lives in the source tree's tools/ folder (same place start-keithvision.ps1
+    /// references ltx_launch.py from), not the published app folder.
+    /// </summary>
+    public string RestartScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\restart-ltx-server.ps1";
 }

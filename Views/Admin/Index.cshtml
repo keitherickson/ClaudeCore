@@ -1,0 +1,210 @@
+@{
+    ViewData["Title"] = "Administration";
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <h1 class="h3 mb-1">Administration</h1>
+        <p class="text-muted mb-0">Health of the local services, and controls to recover them.</p>
+    </div>
+    <button id="refresh-btn" class="btn btn-primary">Refresh</button>
+</div>
+
+@Html.AntiForgeryToken()
+
+<div id="updated" class="text-muted small mb-3">Loading…</div>
+
+<div class="row g-3">
+    <!-- LTX video server -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h2 class="h5 mb-0">LTX-2.3 Video Server</h2>
+                    <span id="ltx-badge" class="badge bg-secondary">…</span>
+                </div>
+                <dl class="row mb-0 mt-3 small">
+                    <dt class="col-5 text-muted">Endpoint</dt><dd class="col-7" id="ltx-endpoint">—</dd>
+                    <dt class="col-5 text-muted">Port listening</dt><dd class="col-7" id="ltx-port">—</dd>
+                    <dt class="col-5 text-muted">Model loaded</dt><dd class="col-7" id="ltx-model">—</dd>
+                    <dt class="col-5 text-muted">GPU</dt><dd class="col-7" id="ltx-gpu">—</dd>
+                    <dt class="col-5 text-muted">VRAM</dt><dd class="col-7" id="ltx-vram">—</dd>
+                </dl>
+                <div id="ltx-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
+                <hr class="my-3" />
+                <button id="restart-btn" class="btn btn-primary btn-sm">Restart LTX server</button>
+                <span id="restart-status" class="ms-2 small text-muted"></span>
+                <div id="restart-progress" class="progress d-none mt-2" role="progressbar" style="height: 1.25rem;">
+                    <div id="restart-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%">0%</div>
+                </div>
+                <pre id="restart-output" class="d-none small mt-2 mb-0 p-2 bg-dark border rounded" style="white-space: pre-wrap;"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Maxine + app -->
+    <div class="col-lg-6">
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h2 class="h5 mb-0">NVIDIA Maxine Upscaler</h2>
+                    <span id="maxine-badge" class="badge bg-secondary">…</span>
+                </div>
+                <div id="maxine-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
+                <p class="text-muted small mt-2 mb-0">On-demand effect — runs per upscale job, not a background server.</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Web App</h2>
+                <dl class="row mb-0 small">
+                    <dt class="col-5 text-muted">Version</dt><dd class="col-7" id="app-version">—</dd>
+                    <dt class="col-5 text-muted">Machine</dt><dd class="col-7" id="app-machine">—</dd>
+                    <dt class="col-5 text-muted">Uptime</dt><dd class="col-7" id="app-uptime">—</dd>
+                    <dt class="col-5 text-muted">Output disk</dt><dd class="col-7" id="app-disk">—</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    const $ = id => document.getElementById(id);
+    const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+    function badge(el, ok, okText, badText) {
+        el.className = "badge " + (ok ? "bg-success" : "bg-danger");
+        el.textContent = ok ? okText : badText;
+    }
+
+    function fmtUptime(s) {
+        s = Math.max(0, Math.floor(s));
+        const d = Math.floor(s / 86400); s -= d * 86400;
+        const h = Math.floor(s / 3600); s -= h * 3600;
+        const m = Math.floor(s / 60);
+        const parts = [];
+        if (d) parts.push(d + "d");
+        if (h || d) parts.push(h + "h");
+        parts.push(m + "m");
+        return parts.join(" ");
+    }
+
+    async function loadStatus() {
+        $("updated").textContent = "Refreshing…";
+        try {
+            const r = await fetch("/Admin/Status");
+            const d = await r.json();
+
+            // LTX
+            const ltx = d.ltx || {};
+            const h = ltx.health;
+            badge($("ltx-badge"), ltx.reachable, "online", "offline");
+            $("ltx-endpoint").textContent = "http://127.0.0.1:" + (ltx.port ?? "?");
+            $("ltx-port").textContent = ltx.portListening ? "yes" : "no";
+            if (h) {
+                $("ltx-model").textContent = h.models_loaded
+                    ? ("yes" + (h.active_model ? " (" + h.active_model + ")" : ""))
+                    : "no — loads on first generation";
+                const g = h.gpu_info || {};
+                $("ltx-gpu").textContent = g.name || "—";
+                $("ltx-vram").textContent = (g.vram != null)
+                    ? `${g.vramUsed ?? 0} / ${g.vram} MB used`
+                    : "—";
+            } else {
+                $("ltx-model").textContent = "—";
+                $("ltx-gpu").textContent = "—";
+                $("ltx-vram").textContent = "—";
+            }
+            const ltxErr = $("ltx-error");
+            ltxErr.classList.toggle("d-none", !ltx.error);
+            if (ltx.error) ltxErr.textContent = "Cannot reach server: " + ltx.error;
+
+            // Maxine
+            const mx = d.maxine || {};
+            badge($("maxine-badge"), mx.ready, "ready", "not ready");
+            const mxErr = $("maxine-error");
+            mxErr.classList.toggle("d-none", !mx.error);
+            if (mx.error) mxErr.textContent = mx.error;
+
+            // App
+            const app = d.app || {};
+            $("app-version").textContent = app.version || "—";
+            $("app-machine").textContent = app.machine || "—";
+            $("app-uptime").textContent = app.uptimeSeconds != null ? fmtUptime(app.uptimeSeconds) : "—";
+            const o = d.output || {};
+            $("app-disk").textContent = o.freeGb != null
+                ? `${o.freeGb} GB free of ${o.totalGb} GB (${o.drive})`
+                : (o.path || "—");
+
+            $("updated").textContent = "Last updated " + new Date().toLocaleTimeString();
+        } catch (err) {
+            $("updated").textContent = "Failed to load status: " + err.message;
+        }
+    }
+
+    // Restart: confirm, POST, then poll status a few times so recovery shows live
+    // even though the dashboard itself is manual-refresh.
+    $("restart-btn").addEventListener("click", async function () {
+        if (!confirm("Restart the LTX video server? In-progress generations will be interrupted.")) return;
+        const btn = $("restart-btn");
+        const status = $("restart-status");
+        const out = $("restart-output");
+        const progress = $("restart-progress");
+        const bar = $("restart-bar");
+
+        // The restart is a single blocking call with no per-step reporting, so we
+        // animate a client-side estimate toward ~90% over the expected ~30s and
+        // snap to 100% when the call returns.
+        const setBar = pct => { bar.style.width = pct + "%"; bar.textContent = pct + "%"; };
+        let estimate = 0;
+        const expectedMs = 30000;
+        const start = Date.now();
+        const ticker = setInterval(() => {
+            const elapsed = Date.now() - start;
+            const target = 90 * (1 - Math.exp(-elapsed / expectedMs)); // ease toward 90%
+            estimate = Math.max(estimate, target);
+            setBar(Math.round(estimate));
+        }, 250);
+
+        btn.disabled = true;
+        status.textContent = "Restarting… this can take up to ~30s.";
+        out.classList.add("d-none");
+        bar.classList.remove("bg-danger");
+        setBar(0);
+        progress.classList.remove("d-none");
+        try {
+            const r = await fetch("/Admin/RestartLtx", {
+                method: "POST",
+                headers: { "RequestVerificationToken": token }
+            });
+            const d = await r.json();
+            clearInterval(ticker);
+            setBar(100);
+            if (!d.ok) bar.classList.add("bg-danger");
+            status.textContent = d.ok ? "Restart complete." : "Restart reported a problem.";
+            if (d.output) { out.textContent = d.output; out.classList.remove("d-none"); }
+            // Let 100% register briefly, then hide the bar — it only shows while restarting.
+            await new Promise(res => setTimeout(res, 800));
+            progress.classList.add("d-none");
+            // Show the server coming back: re-check a few times.
+            for (let i = 0; i < 5; i++) { await new Promise(res => setTimeout(res, 2000)); await loadStatus(); }
+        } catch (err) {
+            clearInterval(ticker);
+            setBar(100);
+            bar.classList.add("bg-danger");
+            status.textContent = "Restart failed: " + err.message;
+            await new Promise(res => setTimeout(res, 800));
+            progress.classList.add("d-none");
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    $("refresh-btn").addEventListener("click", loadStatus);
+    loadStatus();
+})();
+</script>
+}

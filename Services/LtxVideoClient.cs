@@ -22,6 +22,14 @@ public sealed class LtxVideoClient
         return await resp.Content.ReadFromJsonAsync<LtxHealth>(JsonOpts, ct);
     }
 
+    /// <summary>Returns the raw /health JSON (gpu_info, models_status, etc.) for the admin dashboard.</summary>
+    public async Task<string> GetHealthRawAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync("/health", ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsStringAsync(ct);
+    }
+
     public async Task<GenerationProgress?> GetProgressAsync(CancellationToken ct = default)
     {
         using var resp = await _http.GetAsync("/api/generation/progress", ct);
