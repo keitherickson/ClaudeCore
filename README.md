@@ -96,9 +96,10 @@ Optional step that runs **after** upscaling, on both the Generate flow and the U
 ### 4. Admin — `AdminController` + `LtxServerControl`
 A local operations dashboard at `GET /Admin`.
 
-- `GET /Admin/Status` aggregates: LTX reachability + raw `/health` (model/GPU/VRAM) and whether the port is listening (cheap TCP-listener check, no HTTP); **Maxine** and **ffmpeg** readiness; **live GPU** stats from `nvidia-smi` (name, VRAM used/total, utilization, temperature — independent of the LTX server); web-app version/uptime; output-disk free space; and **staging** file count/size (reclaimable uploads + temp transcodes).
+- `GET /Admin/Status` aggregates: LTX reachability + raw `/health` (model/GPU/VRAM) and whether the port is listening (cheap TCP-listener check, no HTTP); **Maxine** and **ffmpeg** readiness; web-app version/uptime; output-disk free space; and **staging** file count/size (reclaimable uploads + temp transcodes). (Live GPU is a separate endpoint — see below.)
 - `POST /Admin/RestartLtx` runs [`tools/restart-ltx-server.ps1`](tools/restart-ltx-server.ps1) (kill the process on the port → wait for it to free → relaunch hidden with the same env/log contract as logon startup → wait for it to listen again). The page shows a client-side progress bar during the restart.
 - `POST /Admin/CleanStaging` deletes staged uploads (the `_inputs`, `_upscale_inputs`, `_speed_inputs` dirs) and temp H.264 transcodes — never the finished output videos.
+- `GET /Admin/Gpu` is a lightweight live GPU snapshot (nvidia-smi only). The shared layout footer polls it on an interval (default **1s**, configurable via `Gpu:PollIntervalMs`), so **every page shows live GPU usage** (name · VRAM · utilization · temperature).
 
 ### 5. Speed Up — `SpeedController` + `VideoSpeedService`
 Standalone page at `GET /Speed` to re-time **any** uploaded video (independent of upscaling).
@@ -130,6 +131,7 @@ Standalone page at `GET /Speed` to re-time **any** uploaded video (independent o
 | `Kestrel:Endpoints` | HTTP binding | `http://127.0.0.1:80` + `:5080` |
 | `Branding` | UI display name | `AppName` |
 | `VideoDefaults` | Generate-form defaults | `Resolution`, `Duration`, `Fps`, `AspectRatio`, `CameraMotion`, `Audio` |
+| `Gpu` | Live GPU footer readout | `PollIntervalMs` (default 1000) |
 | `Ltx` | LTX server + I/O | `BaseUrl` (`:8765`), `OutputDirectory`, `InputDirectory`, `GenerationTimeoutMinutes`, `RestartScriptPath` |
 | `Maxine` | Upscaler exe + SDK | `ExecutablePath`, `ModelDir` (writable copy), `SdkBinDir`, `OpenCvBinDir`, `OutputDirectory`, `Codec` (`avc1`), `TimeoutMinutes` |
 | `VideoSpeed` | ffmpeg re-time | `FfmpegPath`, `OutputDirectory`, `InputDirectory` (Speed page staging), `TimeoutMinutes` |

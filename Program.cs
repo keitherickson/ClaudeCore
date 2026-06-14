@@ -12,6 +12,9 @@ builder.Services.Configure<BrandingOptions>(builder.Configuration.GetSection(Bra
 // Default selections for the Generate Video form ("VideoDefaults" section).
 builder.Services.Configure<VideoDefaultsOptions>(builder.Configuration.GetSection(VideoDefaultsOptions.SectionName));
 
+// Live GPU footer readout ("Gpu" section).
+builder.Services.Configure<GpuOptions>(builder.Configuration.GetSection(GpuOptions.SectionName));
+
 // LTX-2 local video generation: bind options, register the typed HttpClient
 // (with a generous timeout since /api/generate blocks until the video is done),
 // and the orchestration service.

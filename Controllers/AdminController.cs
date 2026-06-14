@@ -95,12 +95,15 @@ public class AdminController : Controller
             ltx,
             maxine = new { ready = maxineReady, error = maxineProblem },
             ffmpeg = new { ready = ffmpegReady, error = ffmpegProblem, path = _speed.FfmpegPath },
-            gpu = await GetGpuAsync(ct),
             app,
             output = DiskInfo(_ltx.OutputDirectory),
             staging = StagingInfo(),
         });
     }
+
+    /// <summary>Lightweight live GPU snapshot (nvidia-smi only) — polled by the footer on every page.</summary>
+    [HttpGet]
+    public async Task<IActionResult> Gpu(CancellationToken ct) => Json(await GetGpuAsync(ct));
 
     /// <summary>Stops and restarts the local LTX server. Returns the script output.</summary>
     [HttpPost]

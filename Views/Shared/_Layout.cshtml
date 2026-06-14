@@ -1,5 +1,9 @@
 ﻿@inject Microsoft.Extensions.Options.IOptions<ClaudeCore.Services.BrandingOptions> Branding
-@{ var appName = Branding.Value.AppName; }
+@inject Microsoft.Extensions.Options.IOptions<ClaudeCore.Services.GpuOptions> GpuOpts
+@{
+    var appName = Branding.Value.AppName;
+    var gpuPollMs = Math.Max(250, GpuOpts.Value.PollIntervalMs); // clamp to a sane minimum
+}
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
 <head>
@@ -45,9 +49,41 @@
         </main>
     </div>
 
+    <footer class="border-top footer text-muted">
+        <div class="container small">
+            <span id="gpu-footer" title="Live GPU (nvidia-smi)">GPU: …</span>
+        </div>
+    </footer>
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+
+    <!-- Live GPU readout in the footer, polled on every page. -->
+    <script>
+    (function () {
+        const el = document.getElementById("gpu-footer");
+        if (!el) return;
+        async function poll() {
+            try {
+                const r = await fetch("/Admin/Gpu");
+                const g = await r.json();
+                if (g && g.available) {
+                    const vram = (g.vramUsedMb != null && g.vramTotalMb != null) ? `${g.vramUsedMb} / ${g.vramTotalMb} MB` : "";
+                    const util = g.utilizationPct != null ? `${g.utilizationPct}%` : "";
+                    const temp = g.temperatureC != null ? `${g.temperatureC}°C` : "";
+                    el.textContent = "GPU: " + [g.name, vram, util, temp].filter(Boolean).join(" · ");
+                } else {
+                    el.textContent = "GPU: n/a";
+                }
+            } catch {
+                el.textContent = "GPU: n/a";
+            }
+        }
+        poll();
+        setInterval(poll, @gpuPollMs);
+    })();
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

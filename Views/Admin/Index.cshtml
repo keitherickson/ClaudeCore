@@ -41,21 +41,16 @@
             </div>
         </div>
 
-        <!-- GPU (live from nvidia-smi) -->
+        <!-- ffmpeg (on-demand exe) -->
         <div class="card">
             <div class="card-body">
                 <div class="d-flex align-items-center justify-content-between">
-                    <h2 class="h5 mb-0">GPU</h2>
-                    <span id="gpu-badge" class="badge bg-secondary">…</span>
+                    <h2 class="h5 mb-0">ffmpeg</h2>
+                    <span id="ffmpeg-badge" class="badge bg-secondary">…</span>
                 </div>
-                <dl class="row mb-0 mt-3 small">
-                    <dt class="col-5 text-muted">Name</dt><dd class="col-7" id="gpu-name">—</dd>
-                    <dt class="col-5 text-muted">VRAM</dt><dd class="col-7" id="gpu-vram">—</dd>
-                    <dt class="col-5 text-muted">Utilization</dt><dd class="col-7" id="gpu-util">—</dd>
-                    <dt class="col-5 text-muted">Temperature</dt><dd class="col-7" id="gpu-temp">—</dd>
-                </dl>
-                <div id="gpu-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
-                <p class="text-muted small mt-2 mb-0">Live from nvidia-smi — works even when the LTX server is down.</p>
+                <div id="ffmpeg-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
+                <p class="text-muted small mt-2 mb-1">On-demand — used for speed-up + H.264 conversion.</p>
+                <div class="small text-muted text-break" id="ffmpeg-path">—</div>
             </div>
         </div>
     </div>
@@ -70,18 +65,6 @@
                 </div>
                 <div id="maxine-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
                 <p class="text-muted small mt-2 mb-0">On-demand effect — runs per upscale job, not a background server.</p>
-            </div>
-        </div>
-
-        <div class="card mb-3">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between">
-                    <h2 class="h5 mb-0">ffmpeg</h2>
-                    <span id="ffmpeg-badge" class="badge bg-secondary">…</span>
-                </div>
-                <div id="ffmpeg-error" class="alert alert-danger d-none mt-3 mb-0 small" role="alert"></div>
-                <p class="text-muted small mt-2 mb-1">On-demand — used for speed-up + H.264 conversion.</p>
-                <div class="small text-muted text-break" id="ffmpeg-path">—</div>
             </div>
         </div>
 
@@ -179,18 +162,6 @@
             ffErr.classList.toggle("d-none", !ff.error);
             if (ff.error) ffErr.textContent = ff.error;
             $("ffmpeg-path").textContent = ff.path || "—";
-
-            // GPU (nvidia-smi)
-            const gpu = d.gpu || {};
-            badge($("gpu-badge"), gpu.available, "online", "n/a");
-            $("gpu-name").textContent = gpu.available ? (gpu.name || "—") : "—";
-            $("gpu-vram").textContent = (gpu.vramUsedMb != null && gpu.vramTotalMb != null)
-                ? `${gpu.vramUsedMb} / ${gpu.vramTotalMb} MB` : "—";
-            $("gpu-util").textContent = gpu.utilizationPct != null ? gpu.utilizationPct + "%" : "—";
-            $("gpu-temp").textContent = gpu.temperatureC != null ? gpu.temperatureC + "°C" : "—";
-            const gpuErr = $("gpu-error");
-            gpuErr.classList.toggle("d-none", !gpu.error);
-            if (gpu.error) gpuErr.textContent = gpu.error;
 
             // Staging
             const st = d.staging || {};
