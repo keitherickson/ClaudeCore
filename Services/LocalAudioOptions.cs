@@ -17,4 +17,10 @@ public sealed class LocalAudioOptions
 
     /// <summary>Minutes to allow a single generation (diffusion can take a while).</summary>
     public int TimeoutMinutes { get; set; } = 5;
+
+    /// <summary>PowerShell launcher that starts the audio server (Admin "Start" button).</summary>
+    public string StartScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\run-audio-server.ps1";
+
+    /// <summary>PowerShell script that stops the audio server (Admin "Stop" button).</summary>
+    public string StopScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\stop-audio-server.ps1";
 }

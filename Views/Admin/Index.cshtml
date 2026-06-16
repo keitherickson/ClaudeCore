@@ -41,6 +41,27 @@
             </div>
         </div>
 
+        <!-- AI sound server (Stable Audio) -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between">
+                    <h2 class="h5 mb-0">AI Sound Server (Stable Audio)</h2>
+                    <span id="audio-badge" class="badge bg-secondary">…</span>
+                </div>
+                <dl class="row mb-0 mt-3 small">
+                    <dt class="col-5 text-muted">Endpoint</dt><dd class="col-7" id="audio-endpoint">—</dd>
+                    <dt class="col-5 text-muted">Port listening</dt><dd class="col-7" id="audio-port">—</dd>
+                    <dt class="col-5 text-muted">Model loaded</dt><dd class="col-7" id="audio-model">—</dd>
+                </dl>
+                <div id="audio-error" class="alert alert-warning d-none mt-3 mb-0 small" role="alert"></div>
+                <hr class="my-3" />
+                <button id="audio-start-btn" class="btn btn-primary btn-sm">Start</button>
+                <button id="audio-stop-btn" class="btn btn-primary btn-sm">Stop</button>
+                <span id="audio-status" class="ms-2 small text-muted"></span>
+                <p class="text-muted small mt-2 mb-0">Not started on logon — start it here when you want AI sound generation. The model takes ~30–60s to load and holds some GPU memory while running.</p>
+            </div>
+        </div>
+
         <!-- ffmpeg (on-demand exe) -->
         <div class="card">
             <div class="card-body">
@@ -148,6 +169,22 @@
             ltxErr.classList.toggle("d-none", !ltx.error);
             if (ltx.error) ltxErr.textContent = "Cannot reach server: " + ltx.error;
 
+            // Audio (Stable Audio) server
+            const au = d.audio || {};
+            const ab = $("audio-badge");
+            if (au.reachable) { ab.className = "badge bg-success"; ab.textContent = "online"; }
+            else if (au.portListening) { ab.className = "badge bg-warning text-dark"; ab.textContent = "starting…"; }
+            else { ab.className = "badge bg-secondary"; ab.textContent = "stopped"; }
+            $("audio-endpoint").textContent = "http://127.0.0.1:" + (au.port ?? "?");
+            $("audio-port").textContent = au.portListening ? "yes" : "no";
+            $("audio-model").textContent = au.reachable ? "yes" : (au.portListening ? "loading…" : "no");
+            // Only surface an error when the port is up but the model isn't (a real
+            // problem); a simply-stopped server is a normal state, not an error.
+            const auErr = $("audio-error");
+            const showAuErr = au.error && au.portListening && !au.reachable;
+            auErr.classList.toggle("d-none", !showAuErr);
+            if (showAuErr) auErr.textContent = au.error;
+
             // Maxine
             const mx = d.maxine || {};
             badge($("maxine-badge"), mx.ready, "ready", "not ready");
@@ -237,6 +274,55 @@
             status.textContent = "Restart failed: " + err.message;
             await new Promise(res => setTimeout(res, 800));
             progress.classList.add("d-none");
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // Start audio server: POST, then poll status until it comes online (model load ~30-60s).
+    $("audio-start-btn").addEventListener("click", async function () {
+        const btn = $("audio-start-btn");
+        const status = $("audio-status");
+        btn.disabled = true;
+        status.textContent = "Starting… the model loads in ~30–60s.";
+        try {
+            const r = await fetch("/Admin/StartAudio", {
+                method: "POST",
+                headers: { "RequestVerificationToken": token }
+            });
+            const d = await r.json();
+            if (!d.ok) { status.textContent = "Start failed: " + (d.error || "see logs"); return; }
+            let online = false;
+            for (let i = 0; i < 30 && !online; i++) {
+                await new Promise(res => setTimeout(res, 3000));
+                await loadStatus();
+                online = $("audio-badge").textContent === "online";
+            }
+            status.textContent = online ? "Started." : "Still loading — use Refresh to check.";
+        } catch (err) {
+            status.textContent = "Start failed: " + err.message;
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // Stop audio server: confirm, POST, refresh.
+    $("audio-stop-btn").addEventListener("click", async function () {
+        if (!confirm("Stop the AI sound server? It frees its GPU memory; AI sound generation won't work until you start it again.")) return;
+        const btn = $("audio-stop-btn");
+        const status = $("audio-status");
+        btn.disabled = true;
+        status.textContent = "Stopping…";
+        try {
+            const r = await fetch("/Admin/StopAudio", {
+                method: "POST",
+                headers: { "RequestVerificationToken": token }
+            });
+            const d = await r.json();
+            status.textContent = d.ok ? (d.output || "Stopped.") : "Stop reported a problem.";
+            await loadStatus();
+        } catch (err) {
+            status.textContent = "Stop failed: " + err.message;
         } finally {
             btn.disabled = false;
         }

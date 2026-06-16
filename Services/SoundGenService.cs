@@ -37,7 +37,11 @@ public sealed class SoundGenService
     {
         try
         {
-            var raw = await _client.GetHealthRawAsync(ct);
+            // Bound the health probe so the Admin Status page can't block on a
+            // wedged server (a stopped server refuses fast; this caps the slow case).
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(5));
+            var raw = await _client.GetHealthRawAsync(cts.Token);
             using var doc = JsonDocument.Parse(raw);
             var loaded = doc.RootElement.TryGetProperty("model_loaded", out var ml) && ml.GetBoolean();
             if (!loaded)

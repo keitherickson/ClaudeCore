@@ -98,11 +98,12 @@ Optional step that runs **after** upscaling, on both the Generate flow and the U
 - Keeps and re-times audio when present (the upscaled clip has its audio restored first), applying an `atempo` chain so sound stays in sync; falls back to video-only on silent inputs.
 - Factors offered: 1.5× / 2× / 3× / 4×.
 
-### 4. Admin — `AdminController` + `LtxServerControl`
+### 4. Admin — `AdminController` + `LtxServerControl` + `AudioServerControl`
 A local operations dashboard at `GET /Admin`.
 
-- `GET /Admin/Status` aggregates: LTX reachability + raw `/health` (model/GPU/VRAM) and whether the port is listening (cheap TCP-listener check, no HTTP); **Maxine** and **ffmpeg** readiness; web-app version/uptime; output-disk free space; and **staging** file count/size (reclaimable uploads + temp transcodes). (Live GPU is a separate endpoint — see below.)
+- `GET /Admin/Status` aggregates: LTX reachability + raw `/health` (model/GPU/VRAM) and whether the port is listening (cheap TCP-listener check, no HTTP); the **Stable Audio** server's port-listening + model-loaded state; **Maxine** and **ffmpeg** readiness; web-app version/uptime; output-disk free space; and **staging** file count/size (reclaimable uploads + temp transcodes). (Live GPU is a separate endpoint — see below.)
 - `POST /Admin/RestartLtx` runs [`tools/restart-ltx-server.ps1`](tools/restart-ltx-server.ps1) (kill the process on the port → wait for it to free → relaunch hidden with the same env/log contract as logon startup → wait for it to listen again). The page shows a client-side progress bar during the restart.
+- `POST /Admin/StartAudio` / `POST /Admin/StopAudio` start/stop the local **Stable Audio** server (`AudioServerControl` → [`tools/run-audio-server.ps1`](tools/run-audio-server.ps1) / [`tools/stop-audio-server.ps1`](tools/stop-audio-server.ps1)). It's **not** an auto-start service, so the Admin page is where you bring it up on demand: Start is detached (the model loads in the background while the page polls until online), Stop frees its VRAM.
 - `POST /Admin/CleanStaging` deletes staged uploads (the `_inputs`, `_upscale_inputs`, `_speed_inputs` dirs) and temp H.264 transcodes — never the finished output videos.
 - `GET /Admin/SystemStats` is a lightweight live snapshot: **GPU** via nvidia-smi (name · VRAM · utilization · temperature), **CPU** utilization (sampled once a second by `SystemStatsService` via the Win32 `GetSystemTimes` API), and **system RAM** used/total (Win32 `GlobalMemoryStatusEx`). The shared layout footer polls it on an interval (default **1s**, configurable via `Gpu:PollIntervalMs`), so **every page shows live GPU + CPU + RAM usage**.
 
@@ -120,7 +121,7 @@ Generate a sound effect from a text prompt using a **self-hosted Stable Audio Op
 - The Generate form submits that path as `audioStagedPath`, and `VideoController` feeds it into the same audio-to-video path as an upload (validated to live inside the staging dir via `LtxVideoService.IsStagedInputFile`).
 - `GET /SoundGen/Preview?name=…` streams a generated clip back so the page can play it inline before generating the video.
 - `GET /SoundGen/Health` proxies the audio server's `/health`; if the server is down or the model hasn't loaded, the generator disables itself with a hint.
-- **Requires the local audio server** (venv + weights) — see External dependencies and InstallationSteps.md.
+- **Requires the local audio server** (venv + weights) — see External dependencies and InstallationSteps.md. Start/stop it on demand from the **Admin** page (it's not an auto-start service).
 
 ---
 
@@ -131,6 +132,7 @@ Generate a sound effect from a text prompt using a **self-hosted Stable Audio Op
 | `LtxVideoClient` | Typed `HttpClient` over the LTX server REST API (`/health`, `/api/generate`, `/api/generation/progress`, `/api/generate/models-specs`). |
 | `LtxVideoService` | Orchestrates a generation: stage image → call server → copy result to output dir. Path-traversal guards on download/reuse. |
 | `LtxServerControl` | Port-listening check + restart of the LTX server process. |
+| `AudioServerControl` | Port-listening check + detached start / scripted stop of the local Stable Audio server (Admin page). |
 | `MaxineUpscaleService` | Runs `VideoEffectsApp.exe` per job; builds args per effect; sets up the DLL `PATH`. |
 | `VideoSpeedService` | Runs ffmpeg `setpts` re-time; keeps + re-times audio (`atempo` chain, with `ffprobe` detection). Also `RestoreAudioAsync` re-muxes the source audio onto the video-only Maxine output. |
 | `VideoProbe` | Reads MP4 display height (no external dependency) to choose a valid SuperRes factor. |
@@ -151,7 +153,7 @@ Generate a sound effect from a text prompt using a **self-hosted Stable Audio Op
 | `Ltx` | LTX server + I/O | `BaseUrl` (`:8765`), `OutputDirectory`, `InputDirectory`, `GenerationTimeoutMinutes`, `RestartScriptPath`, `RestartReadyDelayMs` (post-cancel "ready" delay) |
 | `Maxine` | Upscaler exe + SDK | `ExecutablePath`, `ModelDir` (writable copy), `SdkBinDir`, `OpenCvBinDir`, `OutputDirectory`, `Codec` (`avc1`), `TimeoutMinutes` |
 | `VideoSpeed` | ffmpeg re-time | `FfmpegPath`, `OutputDirectory`, `InputDirectory` (Speed page staging), `TimeoutMinutes` |
-| `LocalAudio` | AI sound generation (self-hosted) | `BaseUrl` (`:8770`), `MaxDurationSeconds`, `TimeoutMinutes` |
+| `LocalAudio` | AI sound generation (self-hosted) | `BaseUrl` (`:8770`), `MaxDurationSeconds`, `TimeoutMinutes`, `StartScriptPath`, `StopScriptPath` |
 
 > `VideoSpeed:FfmpegPath` points at an absolute, **version-specific** path under the winget package folder; a `winget upgrade` of ffmpeg changes it and must be updated.
 
@@ -197,7 +199,7 @@ Services/         orchestration + typed-HttpClient + *Options + VideoProbe + Las
 Models/Ltx/       LTX request/response/health/progress DTOs
 Models/SoundGen/  ElevenLabs sound-generation request + staged-clip records
 Views/            Video, Upscale, Speed, Admin, Shared (_Layout)
-tools/            PowerShell: run/restart LTX server, run audio server, publish, host mapping; ltx_launch.py + audio_server.py
+tools/            PowerShell: run/restart LTX server, run/stop audio server, publish, host mapping; ltx_launch.py + audio_server.py
 wwwroot/          static assets (Bootstrap, jQuery validation)
 appsettings.json  all configuration
 ```

@@ -53,6 +53,8 @@ builder.Services.AddHttpClient<LocalAudioClient>((sp, client) =>
     client.Timeout = TimeSpan.FromMinutes(opts.TimeoutMinutes);
 });
 builder.Services.AddScoped<SoundGenService>();
+// Start/stop control for the audio server (Admin page); not an auto-start service.
+builder.Services.AddSingleton<AudioServerControl>();
 
 var app = builder.Build();
 

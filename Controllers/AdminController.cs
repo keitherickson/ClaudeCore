@@ -21,6 +21,8 @@ public class AdminController : Controller
     private readonly MaxineUpscaleService _maxine;
     private readonly VideoSpeedService _speed;
     private readonly SystemStatsService _stats;
+    private readonly AudioServerControl _audioControl;
+    private readonly SoundGenService _soundGen;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
@@ -29,6 +31,8 @@ public class AdminController : Controller
         MaxineUpscaleService maxine,
         VideoSpeedService speed,
         SystemStatsService stats,
+        AudioServerControl audioControl,
+        SoundGenService soundGen,
         ILogger<AdminController> logger)
     {
         _ltx = ltx;
@@ -36,6 +40,8 @@ public class AdminController : Controller
         _maxine = maxine;
         _speed = speed;
         _stats = stats;
+        _audioControl = audioControl;
+        _soundGen = soundGen;
         _logger = logger;
     }
 
@@ -74,6 +80,17 @@ public class AdminController : Controller
             };
         }
 
+        // --- Audio (Stable Audio) server — on-demand, started from this page ---
+        var audioListening = _audioControl.IsPortListening();
+        var (audioOk, audioErr) = await _soundGen.GetHealthAsync(ct);
+        var audio = new
+        {
+            reachable = audioOk,        // model loaded + responding
+            portListening = audioListening,
+            port = _audioControl.Port,
+            error = audioErr,
+        };
+
         // --- Maxine upscaler (on-demand exe, not a server) ---
         var maxineReady = _maxine.IsReady(out var maxineProblem);
 
@@ -96,6 +113,7 @@ public class AdminController : Controller
             ok = true,
             timeUtc = DateTime.UtcNow,
             ltx,
+            audio,
             maxine = new { ready = maxineReady, error = maxineProblem },
             ffmpeg = new { ready = ffmpegReady, error = ffmpegProblem, path = _speed.FfmpegPath },
             app,
@@ -115,6 +133,24 @@ public class AdminController : Controller
     public async Task<IActionResult> RestartLtx(CancellationToken ct)
     {
         var result = await _ltxControl.RestartAsync(ct);
+        return Json(new { ok = result.Ok, output = result.Output });
+    }
+
+    /// <summary>Starts the local Stable Audio server (detached; the model loads in the background).</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult StartAudio()
+    {
+        var ok = _audioControl.StartDetached();
+        return Json(new { ok, error = ok ? null : "Audio start script not found." });
+    }
+
+    /// <summary>Stops the local Stable Audio server (frees its VRAM). Returns the script output.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> StopAudio(CancellationToken ct)
+    {
+        var result = await _audioControl.StopAsync(ct);
         return Json(new { ok = result.Ok, output = result.Output });
     }
 
