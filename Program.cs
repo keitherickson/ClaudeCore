@@ -41,6 +41,19 @@ builder.Services.AddScoped<MaxineUpscaleService>();
 builder.Services.Configure<VideoSpeedOptions>(builder.Configuration.GetSection(VideoSpeedOptions.SectionName));
 builder.Services.AddScoped<VideoSpeedService>();
 
+// Self-hosted Stable Audio Open generative sound effects: a local Python server
+// (tools/run-audio-server.ps1) that ClaudeCore calls over HTTP — no API key and no
+// per-call cost, runs on the local GPU. Generous timeout since diffusion can take
+// a while.
+builder.Services.Configure<LocalAudioOptions>(builder.Configuration.GetSection(LocalAudioOptions.SectionName));
+builder.Services.AddHttpClient<LocalAudioClient>((sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<LocalAudioOptions>>().Value;
+    client.BaseAddress = new Uri(opts.BaseUrl);
+    client.Timeout = TimeSpan.FromMinutes(opts.TimeoutMinutes);
+});
+builder.Services.AddScoped<SoundGenService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline. This app is localhost-only and binds HTTP

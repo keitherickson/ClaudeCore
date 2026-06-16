@@ -38,6 +38,22 @@
                 <label class="form-label fw-semibold">Audio track <span class="text-muted fw-normal">(optional — drives audio-to-video)</span></label>
                 <input type="file" name="audioFile" id="audioFile" class="form-control" accept="audio/*" />
                 <div class="form-text">Supply your own audio (wav/mp3/flac/ogg/aac/m4a). Switches to audio-to-video; the "generate audio" option below is ignored.</div>
+
+                <div id="sfxgen-panel" class="mt-2">
+                    <label class="form-label small fw-semibold mb-1">…or generate audio with AI <span class="text-muted fw-normal">(local Stable Audio — runs on your GPU)</span></label>
+                    <div class="input-group">
+                        <input type="text" id="sfx-prompt" class="form-control" placeholder="distant thunder rolling over a quiet field" />
+                        <input type="number" id="sfx-duration" class="form-control" style="max-width: 7rem" min="0" max="30" step="0.5" placeholder="auto s" title="Length in seconds (blank or 0 = auto, max 30)" />
+                        <button type="button" id="sfx-gen-btn" class="btn btn-primary">Generate clip</button>
+                    </div>
+                    <input type="hidden" name="audioStagedPath" id="audioStagedPath" />
+                    <div id="sfx-selected" class="form-text d-none">
+                        Using generated clip: <code id="sfx-selected-name"></code>
+                        <a href="#" id="sfx-clear" class="ms-1">clear</a>
+                    </div>
+                    <div id="sfx-status" class="form-text"></div>
+                    <div id="sfx-preview" class="mt-2"></div>
+                </div>
             </div>
 
             <div class="row g-3">
@@ -354,12 +370,89 @@
     // A newly chosen file takes precedence over the saved image for this run.
     imageInput.addEventListener("change", showSavedImage);
 
-    // Supplying an audio track => audio-to-video; the generate-audio toggle is ignored.
+    // Supplying an audio track (uploaded file OR an AI-generated clip) => audio-to-video;
+    // the generate-audio toggle is ignored.
     const audioFileInput = document.getElementById("audioFile");
     const audioChk = document.getElementById("audio");
+    const audioStagedInput = document.getElementById("audioStagedPath");
+
+    function updateAudioMode() {
+        const hasFile = audioFileInput.files && audioFileInput.files.length > 0;
+        const hasGen = !!audioStagedInput.value;
+        audioChk.disabled = hasFile || hasGen;
+    }
+
     audioFileInput.addEventListener("change", function () {
-        audioChk.disabled = audioFileInput.files && audioFileInput.files.length > 0;
+        // A chosen file wins over any generated clip; clear the selection.
+        if (audioFileInput.files && audioFileInput.files.length > 0) sfxClearSelection();
+        updateAudioMode();
     });
+
+    // --- AI sound generation (ElevenLabs) -------------------------------------
+    const sfxPrompt = document.getElementById("sfx-prompt");
+    const sfxDuration = document.getElementById("sfx-duration");
+    const sfxGenBtn = document.getElementById("sfx-gen-btn");
+    const sfxStatus = document.getElementById("sfx-status");
+    const sfxSelected = document.getElementById("sfx-selected");
+    const sfxSelectedName = document.getElementById("sfx-selected-name");
+    const sfxPreview = document.getElementById("sfx-preview");
+
+    function sfxClearSelection() {
+        audioStagedInput.value = "";
+        sfxSelected.classList.add("d-none");
+        sfxPreview.innerHTML = "";
+    }
+
+    async function generateSound() {
+        const prompt = sfxPrompt.value.trim();
+        if (!prompt) { sfxStatus.textContent = "Describe the sound you want."; return; }
+        sfxGenBtn.disabled = true;
+        sfxStatus.textContent = "Generating…";
+        try {
+            const body = new URLSearchParams();
+            body.set("prompt", prompt);
+            body.set("duration", sfxDuration.value || "0"); // 0 => let the model decide
+            const resp = await fetch("/SoundGen/Generate", { method: "POST", body });
+            const d = await resp.json();
+            if (!resp.ok || !d.ok) throw new Error(d.error || ("HTTP " + resp.status));
+            audioStagedInput.value = d.path;
+            sfxSelectedName.textContent = d.name;
+            sfxSelected.classList.remove("d-none");
+            sfxStatus.textContent = "";
+            sfxPreview.innerHTML =
+                `<audio class="w-100" controls preload="none" src="/SoundGen/Preview?name=${encodeURIComponent(d.fileName)}"></audio>`;
+            audioFileInput.value = ""; // a generated clip replaces any uploaded file
+            updateAudioMode();
+        } catch (err) {
+            sfxStatus.textContent = "Generation failed: " + err.message;
+        } finally {
+            sfxGenBtn.disabled = false;
+        }
+    }
+
+    sfxGenBtn.addEventListener("click", generateSound);
+    sfxPrompt.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); generateSound(); }
+    });
+    document.getElementById("sfx-clear").addEventListener("click", function (e) {
+        e.preventDefault();
+        sfxClearSelection();
+        updateAudioMode();
+    });
+
+    // Disable the generator with a hint if no API key is configured.
+    (async function sfxHealth() {
+        try {
+            const r = await fetch("/SoundGen/Health");
+            const d = await r.json();
+            if (!d.ok) {
+                sfxStatus.textContent = d.error || "AI sound generation is not configured.";
+                sfxGenBtn.disabled = true;
+                sfxPrompt.disabled = true;
+                sfxDuration.disabled = true;
+            }
+        } catch { /* ignore */ }
+    })();
 
     document.getElementById("clear-saved-image").addEventListener("click", async function (e) {
         e.preventDefault();

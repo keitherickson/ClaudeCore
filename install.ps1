@@ -262,6 +262,10 @@ try {
         Warn "ffmpeg not found; 'Play faster' stays disabled until ffmpeg is installed and VideoSpeed:FfmpegPath is set."
         $failures.Add("ffmpeg not installed")
     }
+
+    # AI sound generation (optional, self-hosted). Runs a local Stable Audio server
+    # (no API key). The torch cu128 venv + gated weights are a separate manual step.
+    Note "Optional: AI sound generation runs a local Stable Audio server (no API key). Set up the venv + weights per InstallationSteps.md ('AI sound generation'), then start it with tools\run-audio-server.ps1."
 }
 finally { Pop-Location }
 
@@ -282,4 +286,5 @@ Write-Host "       $AppRoot\tools\run-ltx-server.ps1" -ForegroundColor Cyan
 Write-Host "  2. start the app:" -ForegroundColor Cyan
 Write-Host "       dotnet run --project `"$AppRoot\ClaudeCore.csproj`"" -ForegroundColor Cyan
 Write-Host "  3. open the URL it prints. Pages: /Video (generate), /Upscale (Maxine 4K), /Admin (health)." -ForegroundColor Cyan
+Write-Host "  4. (optional) for AI sound generation, set up the local Stable Audio server (see InstallationSteps.md) and run tools\run-audio-server.ps1." -ForegroundColor Cyan
 Write-Host "  See InstallationSteps.md for full details and the Downloads index." -ForegroundColor Cyan

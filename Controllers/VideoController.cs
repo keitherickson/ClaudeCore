@@ -123,6 +123,7 @@ public class VideoController : Controller
         [FromForm] int upscaleMode,
         [FromForm] bool speedUp,
         [FromForm] double speedFactor,
+        [FromForm] string? audioStagedPath,
         IFormFile? image,
         IFormFile? audioFile,
         CancellationToken ct)
@@ -141,13 +142,17 @@ public class VideoController : Controller
             {
                 // No new upload: automatically reuse the last remembered image.
                 var last = _lastImage.Get();
-                if (_service.IsStagedInputImage(last)) imagePath = last;
+                if (_service.IsStagedInputFile(last)) imagePath = last;
             }
 
             // Optional own-audio track: switches the server to audio-to-video.
+            // An uploaded file takes precedence; otherwise use a clip already staged
+            // by the AI sound generator (validated to be inside the staging dir).
             string? audioPath = null;
             if (audioFile is { Length: > 0 })
                 audioPath = await _service.StageAudioAsync(audioFile, ct);
+            else if (_service.IsStagedInputFile(audioStagedPath))
+                audioPath = audioStagedPath;
 
             var request = new GenerateVideoRequest
             {

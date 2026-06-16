@@ -93,7 +93,7 @@ public sealed class LtxVideoService
         => Path.Combine(_options.OutputDirectory, Path.GetFileName(fileName));
 
     /// <summary>True if the path is a real file inside the staging input directory (prevents reading arbitrary files).</summary>
-    public bool IsStagedInputImage(string? path)
+    public bool IsStagedInputFile(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
         try

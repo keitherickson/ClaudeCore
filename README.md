@@ -1,6 +1,6 @@
 # ClaudeCore / KeithVision
 
-A local, single-machine web application for **AI video generation and post-processing** on an NVIDIA RTX 5090. It is an ASP.NET Core MVC front-end that **orchestrates three external engines** — it does no model inference itself; instead it drives those processes over HTTP and the command line and manages their inputs/outputs on disk.
+A local, single-machine web application for **AI video generation and post-processing** on an NVIDIA RTX 5090. It is an ASP.NET Core MVC front-end that **orchestrates four external engines** — it does no model inference itself; instead it drives those processes over HTTP and the command line and manages their inputs/outputs on disk.
 
 > The repository is `ClaudeCore`; the running app's display name is **KeithVision** (configurable via `Branding:AppName`).
 
@@ -9,12 +9,14 @@ A local, single-machine web application for **AI video generation and post-proce
 | Engine | What it is | How the app drives it | Used for |
 |---|---|---|---|
 | **LTX-2.3 inference server** | A self-hosted Python server that reuses **LTX Desktop**'s bundled engine + LTX-2.3 / Gemma weights, listening on `127.0.0.1:8765`. | HTTP REST (typed `HttpClient`) | Text-to-video & image-to-video generation |
+| **Stable Audio Open server** | A self-hosted Python server (diffusers) generating sound effects from text on `127.0.0.1:8770` *(optional)*. | HTTP REST (typed `HttpClient`) | Text-to-sound-effect audio for audio-to-video |
 | **NVIDIA Maxine Video Effects SDK** | NVIDIA's AI video-effects SDK, invoked through its prebuilt `VideoEffectsApp.exe` sample. | Per-job **child process** (CLI args) | Super-resolution upscaling (to 4K), artifact reduction |
 | **ffmpeg** | Standard ffmpeg (Gyan full build, via winget). | Per-job **child process** (CLI args) | Re-timing clips faster: the standalone **Speed Up** page and the post-upscale **Play faster** option |
 
 Everything else (UI, request handling, file orchestration) is the .NET app itself.
 
 - **Generate Video** — text-to-video and image-to-video via a self-hosted **LTX-2.3** inference server.
+- **AI sound** — generate a sound effect from a text prompt with a **self-hosted Stable Audio** model on your GPU, and use it as the audio track (audio-to-video), right from the Generate page.
 - **Upscale** — super-resolution up to 4K via the **NVIDIA Maxine Video Effects SDK** (source audio is preserved).
 - **Play faster** — optional re-time of an upscaled clip via **ffmpeg** (within the Generate / Upscale flows).
 - **Speed Up** — standalone page to re-time **any** uploaded video via **ffmpeg** (audio kept and re-timed when present).
@@ -46,6 +48,7 @@ The web app is a thin orchestrator. The heavy lifting runs in separate processes
                    C:\Users\keith\Videos\LTX-Generated\…
 ```
 
+- **Audio (optional).** An additional local Stable Audio server (`127.0.0.1:8770`) generates sound effects from text on the same HTTP pattern as LTX; omitted from the diagram above for clarity. See §6.
 - **No database.** All state is files on disk plus one tiny JSON state file (the remembered starting image).
 - **Localhost only.** Kestrel binds `127.0.0.1` — the app is not exposed to the network. There is intentionally **no authentication**; the trust boundary is "processes on this PC."
 - **Synchronous engine calls.** The LTX `/api/generate` and the Maxine/ffmpeg subprocesses block until done, so HTTP timeouts and subprocess timeouts are configured in minutes.
@@ -71,7 +74,7 @@ Text-to-video, or image-to-video when a starting image is supplied.
 1. `GET /Video` renders the form. The capability matrix (which resolutions allow which fps/durations) is fetched live from the server (`/Video/Specs`) with a hard-coded fallback, so the form self-adapts.
 2. `POST /Video/Generate`:
    - An uploaded image is staged to the LTX **input** directory (`LtxVideoService.StageImageAsync`) so the server process can read it. With no upload, the last-used image is reused (`LastImageStore`).
-   - An optional uploaded **audio track** is staged the same way (`StageAudioAsync`, `audioPath`); supplying it switches the server to **audio-to-video** (the audio drives the render, an image becomes a conditioning frame, and the generate-audio flag is ignored).
+   - An optional **audio track** switches the server to **audio-to-video** (the audio drives the render, an image becomes a conditioning frame, and the generate-audio flag is ignored). It comes from either an uploaded file (`StageAudioAsync`, `audioPath`) or a clip **generated from a text prompt** by the self-hosted Stable Audio server (staged server-side, passed as `audioStagedPath`; an upload wins if both are present). See §6.
    - The request is POSTed to the LTX server (`/api/generate`); the call blocks until the `.mp4` is rendered.
    - The finished file is copied from the server's output path into the app's **output** directory, then **converted to H.264** in place if the LTX engine emitted HEVC (`VideoSpeedService.ConvertToH264InPlaceAsync`, audio preserved) — H.264 plays in all browsers and is what Maxine accepts.
    - *(optional)* If "Upscale" is checked → run Maxine (see below). If "Play faster" is also checked → re-time the upscaled file (see below).
@@ -109,6 +112,16 @@ Standalone page at `GET /Speed` to re-time **any** uploaded video (independent o
 - `POST /Speed/Run` stages the upload, then runs the same ffmpeg `setpts` re-time as above — but **keeps and re-times audio when present**: it probes for an audio stream with `ffprobe` and, if found, applies an `atempo` chain (chained because `atempo` only accepts 0.5–2.0 per instance, e.g. 3× → `atempo=2.0,atempo=1.5`). Output goes to the configured `VideoSpeed:OutputDirectory`.
 - The page shows the result inline with **Download** and **Clear** buttons; `GET /Speed/Download?name=…` streams it (range-enabled, path-traversal guard). Uploads accepted up to 2 GB.
 
+### 6. AI sound generation — `SoundGenController` + `SoundGenService`
+Generate a sound effect from a text prompt using a **self-hosted Stable Audio Open** model (no API key, no per-call cost — runs on the local GPU), and use it as the audio track, from a panel on the Generate page.
+
+- A small local Python server (`tools/audio_server.py`, launched by `tools/run-audio-server.ps1` on `127.0.0.1:8770`) loads Stable Audio Open via **diffusers** — pure PyTorch, so it runs on the Blackwell GPU with a torch cu128 build, avoiding the flash-attn/Apex deps that block other models. ClaudeCore calls it with a typed `HttpClient` (`LocalAudioClient`), mirroring the LTX integration.
+- `POST /SoundGen/Generate` (prompt + optional duration) calls the server's `/generate`, which returns **WAV** bytes; the service writes them into the LTX input dir (`sfxgen_*.wav`) and returns the staged path. The LTX server already accepts WAV, so no conversion is needed. Duration is optional — a non-positive value lets the model choose, larger values are capped (`LocalAudio:MaxDurationSeconds`).
+- The Generate form submits that path as `audioStagedPath`, and `VideoController` feeds it into the same audio-to-video path as an upload (validated to live inside the staging dir via `LtxVideoService.IsStagedInputFile`).
+- `GET /SoundGen/Preview?name=…` streams a generated clip back so the page can play it inline before generating the video.
+- `GET /SoundGen/Health` proxies the audio server's `/health`; if the server is down or the model hasn't loaded, the generator disables itself with a hint.
+- **Requires the local audio server** (venv + weights) — see External dependencies and InstallationSteps.md.
+
 ---
 
 ## Components
@@ -121,6 +134,7 @@ Standalone page at `GET /Speed` to re-time **any** uploaded video (independent o
 | `MaxineUpscaleService` | Runs `VideoEffectsApp.exe` per job; builds args per effect; sets up the DLL `PATH`. |
 | `VideoSpeedService` | Runs ffmpeg `setpts` re-time; keeps + re-times audio (`atempo` chain, with `ffprobe` detection). Also `RestoreAudioAsync` re-muxes the source audio onto the video-only Maxine output. |
 | `VideoProbe` | Reads MP4 display height (no external dependency) to choose a valid SuperRes factor. |
+| `SoundGenService` / `LocalAudioClient` | Generate a sound effect from a text prompt via the self-hosted Stable Audio server (typed `HttpClient`) and stage the WAV into the LTX input dir for audio-to-video. |
 | `LastImageStore` | Remembers the last starting image across requests/restarts (persisted to a state file). |
 | `*Options` classes | Strongly-typed config bound from `appsettings.json`. |
 
@@ -137,6 +151,7 @@ Standalone page at `GET /Speed` to re-time **any** uploaded video (independent o
 | `Ltx` | LTX server + I/O | `BaseUrl` (`:8765`), `OutputDirectory`, `InputDirectory`, `GenerationTimeoutMinutes`, `RestartScriptPath`, `RestartReadyDelayMs` (post-cancel "ready" delay) |
 | `Maxine` | Upscaler exe + SDK | `ExecutablePath`, `ModelDir` (writable copy), `SdkBinDir`, `OpenCvBinDir`, `OutputDirectory`, `Codec` (`avc1`), `TimeoutMinutes` |
 | `VideoSpeed` | ffmpeg re-time | `FfmpegPath`, `OutputDirectory`, `InputDirectory` (Speed page staging), `TimeoutMinutes` |
+| `LocalAudio` | AI sound generation (self-hosted) | `BaseUrl` (`:8770`), `MaxDurationSeconds`, `TimeoutMinutes` |
 
 > `VideoSpeed:FfmpegPath` points at an absolute, **version-specific** path under the winget package folder; a `winget upgrade` of ffmpeg changes it and must be updated.
 
@@ -150,6 +165,7 @@ These run on the host and are configured by path:
 - **NVIDIA Maxine Video Effects SDK** — redistributable (AI models + DLLs) plus the prebuilt `VideoEffectsApp.exe`.
 - **ffmpeg** — `winget install Gyan.FFmpeg`.
 - **NVIDIA GPU driver** + an RTX (Blackwell-class) GPU.
+- **Stable Audio Open** *(optional)* — the model + Python venv behind AI sound generation; runs locally (no key, no per-call cost). Needs gated weights from Hugging Face and a dedicated `torch` cu128 venv, started via `tools/run-audio-server.ps1` (setup in InstallationSteps.md). Leave the server stopped and the generator stays disabled with a hint.
 
 ---
 
@@ -176,11 +192,12 @@ tools\publish-keithvision.ps1       #  → C:\ClaudeCore\KeithVision
 ## Repository layout
 
 ```
-Controllers/      VideoController, UpscaleController, SpeedController, AdminController, HomeController
+Controllers/      VideoController, UpscaleController, SpeedController, AdminController, SoundGenController, HomeController
 Services/         orchestration + typed-HttpClient + *Options + VideoProbe + LastImageStore
 Models/Ltx/       LTX request/response/health/progress DTOs
+Models/SoundGen/  ElevenLabs sound-generation request + staged-clip records
 Views/            Video, Upscale, Speed, Admin, Shared (_Layout)
-tools/            PowerShell: run/restart LTX server, publish, host mapping, ltx_launch.py
+tools/            PowerShell: run/restart LTX server, run audio server, publish, host mapping; ltx_launch.py + audio_server.py
 wwwroot/          static assets (Bootstrap, jQuery validation)
 appsettings.json  all configuration
 ```
