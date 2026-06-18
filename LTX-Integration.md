@@ -61,6 +61,7 @@ Open the app, click **Generate Video** in the nav (`/Video`):
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `BaseUrl` | `http://127.0.0.1:8765` | LTX server URL (must match `-Port` in the launcher). |
+| `GpuIndex` | `0` | CUDA device the video model is pinned to (passed to the launcher as `-Gpu` → `CUDA_VISIBLE_DEVICES`). Keep distinct from `LocalAudio:GpuIndex` to put video and audio on separate GPUs. |
 | `OutputDirectory` | `C:\Users\keith\Videos\LTX-Generated` | Where finished videos are saved. |
 | `InputDirectory` | `…\LTX-Generated\_inputs` | Where uploaded images are staged for the server. |
 | `GenerationTimeoutMinutes` | `30` | HttpClient timeout for a single generation. |

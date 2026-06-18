@@ -13,10 +13,15 @@
 
 .PARAMETER Port
     Port the LTX server listens on. Must match Ltx:BaseUrl in appsettings.json.
+
+.PARAMETER Gpu
+    Physical GPU index (CUDA device ordinal) to pin the relaunched server to,
+    exported as CUDA_VISIBLE_DEVICES. Must match Ltx:GpuIndex in appsettings.json.
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8765
+    [int]$Port = 8765,
+    [int]$Gpu  = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,8 +53,9 @@ for ($i = 0; $i -lt 20 -and (Get-PortPids $Port); $i++) { Start-Sleep -Milliseco
 if (Get-PortPids $Port) { throw "Port $Port is still in use after stop attempt." }
 
 # 3. Relaunch the server hidden, same contract as start-keithvision.ps1.
-$env:LTX_APP_DATA_DIR = $AppData
-$env:LTX_PORT         = "$Port"
+$env:LTX_APP_DATA_DIR     = $AppData
+$env:LTX_PORT             = "$Port"
+$env:CUDA_VISIBLE_DEVICES = "$Gpu"   # pin the video model to this GPU only
 Start-Process -FilePath $LtxPy -ArgumentList "-u", $LtxLaunch -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $LogDir "ltx-server.out.log") `
     -RedirectStandardError  (Join-Path $LogDir "ltx-server.err.log")
@@ -63,4 +69,4 @@ for ($i = 0; $i -lt 60; $i++) {
 }
 if (-not $listening) { throw "LTX server did not start listening on port $Port within the timeout." }
 
-Write-Host "LTX server restarted and listening on http://127.0.0.1:$Port"
+Write-Host "LTX server restarted and listening on http://127.0.0.1:$Port (GPU $Gpu)"

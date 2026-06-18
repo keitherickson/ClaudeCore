@@ -9,16 +9,23 @@
 
     Set up the venv + weights first — see InstallationSteps.md, "AI sound generation".
 
-    VRAM note: Stable Audio Open is small (a few GB) next to the LTX 22B model, but if
-    both run at once they share the 32 GB GPU; generate audio and video sequentially
-    if you hit OOM.
+    VRAM note: Stable Audio Open is small (a few GB) next to the LTX 22B model. Pin it
+    to its own GPU with -Gpu (see below) so the audio and video models stay resident on
+    separate cards; only if you force both onto one GPU do you risk OOM and need to
+    generate audio and video sequentially.
 
 .PARAMETER Port
     Port to listen on. Must match the "LocalAudio:BaseUrl" port in appsettings.json (8770).
+
+.PARAMETER Gpu
+    Physical GPU index (CUDA device ordinal) to pin this server to. Exported as
+    CUDA_VISIBLE_DEVICES so the audio model loads on that GPU only, separate from the
+    LTX video server's GPU. Must match "LocalAudio:GpuIndex" in appsettings.json.
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8770
+    [int]$Port = 8770,
+    [int]$Gpu  = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,14 +39,15 @@ foreach ($p in @($Python, $Server)) {
     }
 }
 
-$env:AUDIO_PORT = "$Port"
+$env:AUDIO_PORT           = "$Port"
+$env:CUDA_VISIBLE_DEVICES = "$Gpu"   # pin the audio model to this GPU only
 # AUDIO_MODEL / AUDIO_STEPS / AUDIO_MAX_SECONDS use audio_server.py defaults unless set here.
 
 # Force the classic HTTPS downloader: the default hf_xet fast-transfer backend
 # stalled mid-download on this machine (a file stuck at 0 bytes, no progress).
 $env:HF_HUB_DISABLE_XET = "1"
 
-Write-Host "Starting Stable Audio server on http://127.0.0.1:$Port  (Ctrl+C to stop)" -ForegroundColor Cyan
+Write-Host "Starting Stable Audio server on http://127.0.0.1:$Port (GPU $Gpu)  (Ctrl+C to stop)" -ForegroundColor Cyan
 Write-Host "Venv: $Python" -ForegroundColor DarkGray
 
 & $Python -u $Server

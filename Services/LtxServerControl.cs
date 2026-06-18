@@ -63,13 +63,13 @@ public sealed class LtxServerControl
             ArgumentList =
             {
                 "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                "-File", script, "-Port", Port.ToString()
+                "-File", script, "-Port", Port.ToString(), "-Gpu", _options.GpuIndex.ToString()
             },
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
-        _logger.LogInformation("Hard-stop: launching detached LTX restart on port {Port}", Port);
+        _logger.LogInformation("Hard-stop: launching detached LTX restart on port {Port} (GPU {Gpu})", Port, _options.GpuIndex);
         Process.Start(psi); // detached on purpose — the relaunched server must outlive this call
     }
 
@@ -90,7 +90,7 @@ public sealed class LtxServerControl
             ArgumentList =
             {
                 "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                "-File", script, "-Port", Port.ToString()
+                "-File", script, "-Port", Port.ToString(), "-Gpu", _options.GpuIndex.ToString()
             },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -98,7 +98,7 @@ public sealed class LtxServerControl
             CreateNoWindow = true,
         };
 
-        _logger.LogInformation("Restarting LTX server via {Script} on port {Port}", script, Port);
+        _logger.LogInformation("Restarting LTX server via {Script} on port {Port} (GPU {Gpu})", script, Port, _options.GpuIndex);
 
         using var proc = new Process { StartInfo = psi };
         var stdout = new System.Text.StringBuilder();

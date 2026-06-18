@@ -12,6 +12,14 @@ public sealed class LocalAudioOptions
     /// <summary>Base URL of the local audio server. Must match the launcher's -Port (8770).</summary>
     public string BaseUrl { get; set; } = "http://127.0.0.1:8770";
 
+    /// <summary>
+    /// Physical GPU index (CUDA device ordinal) the audio server is pinned to,
+    /// passed to the launcher as -Gpu and exported as CUDA_VISIBLE_DEVICES.
+    /// Defaults to 1 so the audio model loads on a different GPU than the LTX
+    /// video model (which defaults to 0).
+    /// </summary>
+    public int GpuIndex { get; set; } = 1;
+
     /// <summary>Upper bound on requested duration (the server clamps too).</summary>
     public double MaxDurationSeconds { get; set; } = 30;
 

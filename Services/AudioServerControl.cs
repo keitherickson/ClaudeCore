@@ -56,13 +56,13 @@ public sealed class AudioServerControl
             ArgumentList =
             {
                 "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                "-File", script, "-Port", Port.ToString()
+                "-File", script, "-Port", Port.ToString(), "-Gpu", _options.GpuIndex.ToString()
             },
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
-        _logger.LogInformation("Starting audio server (detached) on port {Port}", Port);
+        _logger.LogInformation("Starting audio server (detached) on port {Port} (GPU {Gpu})", Port, _options.GpuIndex);
         Process.Start(psi);
         return true;
     }

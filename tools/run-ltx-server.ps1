@@ -13,10 +13,16 @@
 
 .PARAMETER Port
     Port to listen on. Must match the "Ltx:BaseUrl" port in appsettings.json (8765).
+
+.PARAMETER Gpu
+    Physical GPU index (CUDA device ordinal) to pin this server to. Exported as
+    CUDA_VISIBLE_DEVICES so the LTX video model loads on that GPU only, leaving the
+    other GPU free for the audio server. Must match "Ltx:GpuIndex" in appsettings.json.
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8765
+    [int]$Port = 8765,
+    [int]$Gpu  = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,11 +41,12 @@ if (Get-Process -Name "LTX Desktop" -ErrorAction SilentlyContinue) {
 }
 
 # The server reads all of its config from environment variables.
-$env:LTX_APP_DATA_DIR = $AppData   # reuse already-downloaded models + outputs
-$env:LTX_PORT         = "$Port"
+$env:LTX_APP_DATA_DIR     = $AppData   # reuse already-downloaded models + outputs
+$env:LTX_PORT             = "$Port"
+$env:CUDA_VISIBLE_DEVICES = "$Gpu"     # pin the video model to this GPU only
 # LTX_AUTH_TOKEN intentionally unset  -> auth middleware is bypassed (localhost only).
 
-Write-Host "Starting LTX-2 server on http://127.0.0.1:$Port  (Ctrl+C to stop)" -ForegroundColor Cyan
+Write-Host "Starting LTX-2 server on http://127.0.0.1:$Port (GPU $Gpu)  (Ctrl+C to stop)" -ForegroundColor Cyan
 Write-Host "Models dir: $AppData\models" -ForegroundColor DarkGray
 Write-Host "Output dir: $AppData\outputs" -ForegroundColor DarkGray
 

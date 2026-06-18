@@ -17,10 +17,11 @@ function Port-Listening($port) {
     [bool](Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
 }
 
-# 1. LTX-2.3 generation server on :8765
+# 1. LTX-2.3 generation server on :8765 (pinned to GPU 0; matches Ltx:GpuIndex)
 if ((Test-Path $LtxPy) -and -not (Port-Listening 8765)) {
     $env:LTX_APP_DATA_DIR = "C:\Users\keith\AppData\Local\LTXDesktop"
     $env:LTX_PORT = "8765"
+    $env:CUDA_VISIBLE_DEVICES = "0"
     Start-Process -FilePath $LtxPy -ArgumentList "-u", $LtxLaunch -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $LogDir "ltx-server.out.log") `
         -RedirectStandardError  (Join-Path $LogDir "ltx-server.err.log")

@@ -150,12 +150,21 @@ Generate a sound effect from a text prompt using a **self-hosted Stable Audio Op
 | `Branding` | UI display name | `AppName` |
 | `VideoDefaults` | Generate-form defaults | `Resolution`, `Duration`, `Fps`, `AspectRatio`, `CameraMotion`, `Audio` |
 | `Gpu` | Live GPU footer readout | `PollIntervalMs` (default 1000) |
-| `Ltx` | LTX server + I/O | `BaseUrl` (`:8765`), `OutputDirectory`, `InputDirectory`, `GenerationTimeoutMinutes`, `RestartScriptPath`, `RestartReadyDelayMs` (post-cancel "ready" delay) |
+| `Ltx` | LTX server + I/O | `BaseUrl` (`:8765`), `GpuIndex` (CUDA device for the video model, default `0`), `OutputDirectory`, `InputDirectory`, `GenerationTimeoutMinutes`, `RestartScriptPath`, `RestartReadyDelayMs` (post-cancel "ready" delay) |
 | `Maxine` | Upscaler exe + SDK | `ExecutablePath`, `ModelDir` (writable copy), `SdkBinDir`, `OpenCvBinDir`, `OutputDirectory`, `Codec` (`avc1`), `TimeoutMinutes` |
 | `VideoSpeed` | ffmpeg re-time | `FfmpegPath`, `OutputDirectory`, `InputDirectory` (Speed page staging), `TimeoutMinutes` |
-| `LocalAudio` | AI sound generation (self-hosted) | `BaseUrl` (`:8770`), `MaxDurationSeconds`, `TimeoutMinutes`, `StartScriptPath`, `StopScriptPath` |
+| `LocalAudio` | AI sound generation (self-hosted) | `BaseUrl` (`:8770`), `GpuIndex` (CUDA device for the audio model, default `1`), `MaxDurationSeconds`, `TimeoutMinutes`, `StartScriptPath`, `StopScriptPath` |
 
 > `VideoSpeed:FfmpegPath` points at an absolute, **version-specific** path under the winget package folder; a `winget upgrade` of ffmpeg changes it and must be updated.
+
+### Targeting separate GPUs for video and audio
+
+On a multi-GPU machine the LTX **video** server and the Stable Audio **audio** server can each be pinned to their own card so both models stay resident at once (no per-generation reload, no shared-VRAM OOM). Each launcher exports `CUDA_VISIBLE_DEVICES`, so the model only ever sees its assigned GPU:
+
+- `Ltx:GpuIndex` (default `0`) → passed to `run-ltx-server.ps1` / `restart-ltx-server.ps1` as `-Gpu`; the logon auto-start (`start-keithvision.ps1`) hard-codes the matching `0`.
+- `LocalAudio:GpuIndex` (default `1`) → passed to `run-audio-server.ps1` as `-Gpu` when the Admin page starts it.
+
+Swap the two indices (or set both to `0`) to change the mapping; the C# server-control services read these values and pass them through automatically. On a single-GPU box, set both to `0`.
 
 ---
 

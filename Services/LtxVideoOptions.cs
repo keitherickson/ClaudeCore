@@ -11,6 +11,13 @@ public sealed class LtxVideoOptions
     /// <summary>Base URL of the local LTX-2 server. Must match LTX_PORT in the launcher.</summary>
     public string BaseUrl { get; set; } = "http://127.0.0.1:8765";
 
+    /// <summary>
+    /// Physical GPU index (CUDA device ordinal) the LTX video server is pinned to,
+    /// passed to the launcher as -Gpu and exported as CUDA_VISIBLE_DEVICES. Keeping
+    /// video and audio on separate GPUs lets both models stay resident at once.
+    /// </summary>
+    public int GpuIndex { get; set; } = 0;
+
     /// <summary>Folder on the local drive where finished videos are copied.</summary>
     public string OutputDirectory { get; set; } = @"C:\Users\keith\Videos\LTX-Generated";
 
