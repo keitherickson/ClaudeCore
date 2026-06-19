@@ -4,8 +4,11 @@ using ClaudeCore.Models.Ltx;
 
 namespace ClaudeCore.Services;
 
-/// <summary>Typed HttpClient over the local LTX-2 inference server's REST API.</summary>
-public sealed class LtxVideoClient
+/// <summary>
+/// Typed HttpClient over the local LTX-2 inference server's REST API (the BF16 2.3
+/// LTX Desktop engine). One of the <see cref="ILtxVideoBackend"/> implementations.
+/// </summary>
+public sealed class LtxVideoClient : ILtxVideoBackend
 {
     private readonly HttpClient _http;
 
@@ -14,6 +17,9 @@ public sealed class LtxVideoClient
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     public LtxVideoClient(HttpClient http) => _http = http;
+
+    /// <summary>Routing key for the VideoModels registry (the BF16 LTX Desktop server).</summary>
+    public string Key => "LtxDesktop";
 
     public async Task<LtxHealth?> GetHealthAsync(CancellationToken ct = default)
     {

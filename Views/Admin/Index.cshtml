@@ -14,6 +14,19 @@
 
 <div id="updated" class="text-muted small mb-3">Loading…</div>
 
+<!-- Active video model switch -->
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between">
+            <h2 class="h5 mb-0">Active Video Model</h2>
+            <span id="model-badge" class="badge bg-secondary">…</span>
+        </div>
+        <p class="text-muted small mt-2 mb-2">Which model the Generate page uses for new videos. The choice is remembered across restarts.</p>
+        <div id="model-list" class="d-flex flex-column gap-2"></div>
+        <div id="model-status" class="small text-muted mt-2"></div>
+    </div>
+</div>
+
 <div class="row g-3">
     <!-- LTX video server -->
     <div class="col-lg-6">
@@ -350,8 +363,57 @@
         }
     });
 
-    $("refresh-btn").addEventListener("click", loadStatus);
+    // Active video model: render the registry as radios and switch on change.
+    async function loadModels() {
+        try {
+            const r = await fetch("/Admin/Models");
+            const d = await r.json();
+            if (!d.ok) return;
+            const list = $("model-list");
+            list.innerHTML = "";
+            const active = d.models.find(m => m.id === d.activeId);
+            const badge = $("model-badge");
+            badge.className = "badge bg-success";
+            badge.textContent = active ? active.label : d.activeId;
+            for (const m of d.models) {
+                const id = "model-" + m.id;
+                const row = document.createElement("div");
+                row.className = "form-check";
+                row.innerHTML =
+                    '<input class="form-check-input" type="radio" name="active-model" id="' + id + '" value="' + m.id + '"'
+                    + (m.id === d.activeId ? " checked" : "") + '>'
+                    + '<label class="form-check-label" for="' + id + '"><strong>' + m.label + '</strong>'
+                    + '<span class="text-muted small d-block">' + (m.description || "") + '</span></label>';
+                row.querySelector("input").addEventListener("change", () => switchModel(m.id));
+                list.appendChild(row);
+            }
+        } catch (err) {
+            $("model-status").textContent = "Failed to load models: " + err.message;
+        }
+    }
+
+    async function switchModel(id) {
+        const status = $("model-status");
+        status.textContent = "Switching…";
+        try {
+            const body = new URLSearchParams({ id });
+            const r = await fetch("/Admin/SetModel", {
+                method: "POST",
+                headers: { "RequestVerificationToken": token, "Content-Type": "application/x-www-form-urlencoded" },
+                body
+            });
+            const d = await r.json();
+            if (!d.ok) { status.textContent = "Switch failed: " + (d.error || "see logs"); return; }
+            status.textContent = "Active model updated.";
+            await loadModels();
+        } catch (err) {
+            status.textContent = "Switch failed: " + err.message;
+        }
+    }
+
+    $("refresh-btn").addEventListener("click", () => { loadStatus(); loadModels(); });
     loadStatus();
+    loadModels();
 })();
 </script>
 }

@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using ClaudeCore.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace ClaudeCore.Controllers;
 
@@ -23,6 +24,8 @@ public class AdminController : Controller
     private readonly SystemStatsService _stats;
     private readonly AudioServerControl _audioControl;
     private readonly SoundGenService _soundGen;
+    private readonly ActiveModelStore _activeModel;
+    private readonly VideoModelsOptions _videoModels;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
@@ -33,6 +36,8 @@ public class AdminController : Controller
         SystemStatsService stats,
         AudioServerControl audioControl,
         SoundGenService soundGen,
+        ActiveModelStore activeModel,
+        IOptions<VideoModelsOptions> videoModels,
         ILogger<AdminController> logger)
     {
         _ltx = ltx;
@@ -42,7 +47,30 @@ public class AdminController : Controller
         _stats = stats;
         _audioControl = audioControl;
         _soundGen = soundGen;
+        _activeModel = activeModel;
+        _videoModels = videoModels.Value;
         _logger = logger;
+    }
+
+    /// <summary>The selectable video models + which one is active (for the /Admin switch).</summary>
+    [HttpGet]
+    public IActionResult Models()
+        => Json(new
+        {
+            ok = true,
+            activeId = _activeModel.ActiveId,
+            models = _videoModels.Models.Select(m => new { m.Id, m.Label, m.Backend, m.Description }),
+        });
+
+    /// <summary>Switches which model the Generate flow uses. Persisted across restarts.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult SetModel([FromForm] string id)
+    {
+        if (!_activeModel.Set(id))
+            return BadRequest(new { ok = false, error = $"Unknown model id '{id}'." });
+        _logger.LogInformation("Active video model switched to {Id}", id);
+        return Json(new { ok = true, activeId = _activeModel.ActiveId });
     }
 
     [HttpGet]

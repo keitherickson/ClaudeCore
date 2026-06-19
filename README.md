@@ -16,6 +16,7 @@ A local, single-machine web application for **AI video generation and post-proce
 Everything else (UI, request handling, file orchestration) is the .NET app itself.
 
 - **Generate Video** — text-to-video and image-to-video via a self-hosted **LTX-2.3** inference server.
+- **Extend & stitch** — chain 2–8 clips past the per-generation duration cap, each conditioned on the previous clip's last frame, then concatenated into one video (optional per-segment prompts for a rough timeline).
 - **AI sound** — generate a sound effect from a text prompt with a **self-hosted Stable Audio** model on your GPU, and use it as the audio track (audio-to-video), right from the Generate page.
 - **Upscale** — super-resolution up to 4K via the **NVIDIA Maxine Video Effects SDK** (source audio is preserved).
 - **Play faster** — optional re-time of an upscaled clip via **ffmpeg** (within the Generate / Upscale flows).
@@ -78,6 +79,7 @@ Text-to-video, or image-to-video when a starting image is supplied.
    - The request is POSTed to the LTX server (`/api/generate`); the call blocks until the `.mp4` is rendered.
    - The finished file is copied from the server's output path into the app's **output** directory, then **converted to H.264** in place if the LTX engine emitted HEVC (`VideoSpeedService.ConvertToH264InPlaceAsync`, audio preserved) — H.264 plays in all browsers and is what Maxine accepts.
    - *(optional)* If "Upscale" is checked → run Maxine (see below). If "Play faster" is also checked → re-time the upscaled file (see below).
+   - **Extend & stitch** (`POST /Video/Extend`, 2–8 segments) chains generations to exceed the duration cap: each clip's **last frame** is extracted with ffmpeg (`VideoSpeedService.ExtractLastFrameAsync`) and fed as the next segment's `imagePath` (frame-0 conditioning — the same primitive image-to-video uses), then all segments are concatenated (`VideoSpeedService.ConcatAsync`, re-encoded across the seams). `extraPrompts` (one line per extra segment) gives a rough prompt timeline; upscale/play-faster run once on the stitched result. Uploaded/AI audio isn't supported here.
 3. The browser polls `/Video/Progress` during the run; because the engine reports coarse progress, the bar is a smoothed client-side estimate. A **Cancel** button posts to `/Video/Cancel`, which **hard-stops** the render by killing + relaunching the LTX server (`LtxServerControl.RestartDetached` — fire-and-forget so the request returns instantly and the relaunched server is never torn down). The server's own cooperative cancel can't interrupt an in-progress video inference (no per-step hook), so restarting the process is the only way to actually free the GPU mid-render — at the cost of reloading models on the next generation.
 4. `GET /Video/Download?name=…` streams the result (range-enabled, with a path-traversal guard).
 
@@ -104,6 +106,7 @@ A local operations dashboard at `GET /Admin`.
 - `GET /Admin/Status` aggregates: LTX reachability + raw `/health` (model/GPU/VRAM) and whether the port is listening (cheap TCP-listener check, no HTTP); the **Stable Audio** server's port-listening + model-loaded state; **Maxine** and **ffmpeg** readiness; web-app version/uptime; output-disk free space; and **staging** file count/size (reclaimable uploads + temp transcodes). (Live GPU is a separate endpoint — see below.)
 - `POST /Admin/RestartLtx` runs [`tools/restart-ltx-server.ps1`](tools/restart-ltx-server.ps1) (kill the process on the port → wait for it to free → relaunch hidden with the same env/log contract as logon startup → wait for it to listen again). The page shows a client-side progress bar during the restart.
 - `POST /Admin/StartAudio` / `POST /Admin/StopAudio` start/stop the local **Stable Audio** server (`AudioServerControl` → [`tools/run-audio-server.ps1`](tools/run-audio-server.ps1) / [`tools/stop-audio-server.ps1`](tools/stop-audio-server.ps1)). It's **not** an auto-start service, so the Admin page is where you bring it up on demand: Start is detached (the model loads in the background while the page polls until online), Stop frees its VRAM.
+- `GET /Admin/Models` / `POST /Admin/SetModel` list and switch the **active video model** (see §7) — a radio-card on the page; the choice persists across restarts.
 - `POST /Admin/CleanStaging` deletes staged uploads (the `_inputs`, `_upscale_inputs`, `_speed_inputs` dirs) and temp H.264 transcodes — never the finished output videos.
 - `GET /Admin/SystemStats` is a lightweight live snapshot: **GPU** via nvidia-smi (name · VRAM · utilization · temperature), **CPU** utilization (sampled once a second by `SystemStatsService` via the Win32 `GetSystemTimes` API), and **system RAM** used/total (Win32 `GlobalMemoryStatusEx`). The shared layout footer polls it on an interval (default **1s**, configurable via `Gpu:PollIntervalMs`), so **every page shows live GPU + CPU + RAM usage**.
 
@@ -122,6 +125,15 @@ Generate a sound effect from a text prompt using a **self-hosted Stable Audio Op
 - `GET /SoundGen/Preview?name=…` streams a generated clip back so the page can play it inline before generating the video.
 - `GET /SoundGen/Health` proxies the audio server's `/health`; if the server is down or the model hasn't loaded, the generator disables itself with a hint.
 - **Requires the local audio server** (venv + weights) — see External dependencies and InstallationSteps.md. Start/stop it on demand from the **Admin** page (it's not an auto-start service).
+
+### 7. Video model switch — `ILtxVideoBackend` + `ActiveModelStore`
+
+The Generate flow can target more than one video model, chosen at runtime from the **Admin** page.
+
+- **Two backends behind one interface.** `ILtxVideoBackend` (Generate/Progress/Health/Specs) has two implementations: `LtxVideoClient` (key `LtxDesktop` — the BF16 LTX-2.3 server described above, **full features incl. audio + Extend**, the default) and `ComfyUiVideoBackend` (key `ComfyUI` — an NVFP4 LTX-2.3 model on a local ComfyUI server, **faster on Blackwell** via FP4 tensor cores). `LtxVideoService` routes each call to whichever model is active; staging/output handling is shared and backend-agnostic.
+- **Runtime selection, persisted.** `ActiveModelStore` remembers the chosen model in a small state file (`.active-model.txt`, same pattern as `LastImageStore`), so it survives restarts. The registry of selectable models lives in `VideoModelsOptions` (defined in code — each entry's backend key is coupled to an implementation). `POST /Admin/SetModel` switches it; `GET /Admin/Models` lists them; the Admin page renders a radio-card switch.
+- **ComfyUI backend.** Builds the validated text-to-video graph (UNETLoader FP4 transformer + distilled LoRA + checkpoint-sourced VAE + Gemma text encoder), submits it to ComfyUI's `/prompt`, polls `/history` to completion, and downloads the clip via `/view`, saving it with an `.mp4` name so the existing H.264 normalization (§1) turns the VP9/WebM render into a browser-friendly MP4. Configured under the `ComfyUI` section.
+- **Limitation (current):** the ComfyUI/NVFP4 backend is **text-to-video only** — it ignores image and audio conditioning, so image-to-video, audio-to-video, and Extend require the BF16 default. The switch labels make this explicit.
 
 ---
 

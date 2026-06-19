@@ -25,6 +25,27 @@ Browser ──HTTP──> ClaudeCore (ASP.NET, :5080/5001)
 - The conditioning image is passed by **file path** (`imagePath`); the app stages
   the uploaded image to `InputDirectory` so the server can read it.
 
+## Extend & stitch (longer-than-one-generation clips)
+
+The server's REST API caps a single generation at the duration matrix (≤20s).
+**Extend** chains several generations to get past that, on the client side:
+
+1. Generate segment 1 (text- or image-to-video).
+2. ffmpeg extracts that clip's **last frame** to a PNG
+   (`VideoSpeedService.ExtractLastFrameAsync`).
+3. That PNG becomes the **starting image** (`imagePath`, frame 0) of segment 2 —
+   the *same* conditioning primitive image-to-video uses, so the clips continue.
+4. Repeat for N segments, then ffmpeg concatenates them into one MP4
+   (`VideoSpeedService.ConcatAsync`, re-encoded to H.264 across the seams).
+
+`POST /Video/Extend` drives this (2–8 segments). `extraPrompts` (one line per
+extension segment) gives a rough **prompt timeline**; blank lines reuse the main
+prompt. Optional upscale/play-faster run once on the stitched result. Note this
+is *not* the engine's native multi-keyframe Extend (the REST API exposes only a
+single frame-0 conditioning image), but it reuses the identical primitive and
+needs no backend changes. Uploaded/AI audio isn't supported in Extend (it can't
+be sliced per segment); the synchronized-audio toggle still applies per clip.
+
 ## One-time / per-session: start the LTX server
 
 > ⚠️ **Quit LTX Desktop first.** Both load the 22B model into VRAM and two copies
@@ -75,7 +96,7 @@ Open the app, click **Generate Video** in the nav (`/Video`):
 | `Models/Ltx/LtxModels.cs` | Request/response DTOs matching the LTX API. |
 | `Services/LtxVideoClient.cs` | Typed HttpClient over the LTX REST API. |
 | `Services/LtxVideoService.cs` | Stages image, calls server, copies result to disk. |
-| `Controllers/VideoController.cs` | `Index`, `Generate`, `Progress`, `Health`, `Download`. |
+| `Controllers/VideoController.cs` | `Index`, `Generate`, `Extend`, `Progress`, `Health`, `Download`. |
 | `Views/Video/Index.cshtml` | Form + progress bar + inline preview. |
 
 ## Notes / limits

@@ -107,6 +107,36 @@
 
             <hr class="my-3" />
             <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="extend-toggle" />
+                <label class="form-check-label fw-semibold" for="extend-toggle">
+                    Extend &amp; stitch <span class="text-muted fw-normal">(chain clips past the duration cap)</span>
+                </label>
+            </div>
+            <div class="row g-3 mt-0 d-none" id="extend-opts">
+                <div class="col-12">
+                    <p class="form-text mb-2">
+                        Generates several clips back-to-back, each starting from the previous clip's
+                        last frame, then stitches them into one longer video. Total length ≈ segments × duration.
+                        Uploaded/AI audio is ignored here.
+                    </p>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label">Segments</label>
+                    <input type="number" name="segments" id="segments" class="form-control" min="2" max="8" step="1" value="2" />
+                    <div class="form-text">2–8 clips chained.</div>
+                </div>
+                <div class="col-12 col-md-9">
+                    <label class="form-label">Per-segment prompts <span class="text-muted">(optional)</span></label>
+                    <textarea name="extraPrompts" id="extraPrompts" class="form-control" rows="2"
+                              placeholder="One line per extra segment (segment 2, 3, …). Blank lines reuse the main prompt."></textarea>
+                </div>
+                <div class="col-12">
+                    <button type="button" id="extend-btn" class="btn btn-primary">Extend &amp; stitch</button>
+                </div>
+            </div>
+
+            <hr class="my-3" />
+            <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="upscale" value="true" id="upscale" />
                 <label class="form-check-label fw-semibold" for="upscale">
                     Upscale with NVIDIA Maxine <span class="text-muted fw-normal">(saves an upscaled copy too)</span>
@@ -213,6 +243,9 @@
     const upscaledDownload = document.getElementById("upscaled-download");
     const upscaleWarning = document.getElementById("upscale-warning");
     const clearVideosBtn = document.getElementById("clear-videos");
+    const extendToggle = document.getElementById("extend-toggle");
+    const extendOpts = document.getElementById("extend-opts");
+    const extendBtn = document.getElementById("extend-btn");
 
     // Remove the shown videos and hide this button.
     clearVideosBtn.addEventListener("click", function () {
@@ -225,6 +258,10 @@
 
     upscaleChk.addEventListener("change", function () {
         upscaleOpts.classList.toggle("d-none", !upscaleChk.checked);
+    });
+
+    extendToggle.addEventListener("change", function () {
+        extendOpts.classList.toggle("d-none", !extendToggle.checked);
     });
 
     speedUpChk.addEventListener("change", function () {
@@ -539,18 +576,20 @@
         if (this.value.trim()) this.classList.remove("is-invalid");
     });
 
-    form.addEventListener("submit", async function (e) {
-        e.preventDefault();
-
-        // Validate: prompt is required.
+    // Validate the prompt is present; flag the field and bail if not.
+    function requirePrompt() {
         const promptEl = form.elements["prompt"];
         if (!promptEl.value.trim()) {
             promptEl.classList.add("is-invalid");
             promptEl.focus();
-            return;
+            return false;
         }
         promptEl.classList.remove("is-invalid");
+        return true;
+    }
 
+    // Reset the cards and spin up the progress widget + poller for a run.
+    function beginRun(phaseText) {
         errorCard.classList.add("d-none");
         resultCard.classList.add("d-none");
         upscaledCard.classList.add("d-none");
@@ -562,12 +601,55 @@
         progressCard.classList.remove("d-none");
         progressBar.style.width = "0%";
         progressBar.textContent = "0%";
-        progressPhase.textContent = "submitting…";
+        progressPhase.textContent = phaseText;
         estimate = 0;
         btn.disabled = true;
-
+        extendBtn.disabled = true;
         pollTimer = setInterval(poll, 1000);
+    }
 
+    function endRun() {
+        clearInterval(pollTimer);
+        progressCard.classList.add("d-none");
+        btn.disabled = false;
+        extendBtn.disabled = false;
+    }
+
+    // Render a successful result (and any upscaled copy) into the result cards.
+    function showResult(result) {
+        progressBar.style.width = "100%";
+        progressBar.textContent = "100%";
+        const url = "/Video/Download?name=" + encodeURIComponent(result.fileName);
+        resultVideo.src = url;
+        resultDownload.href = url;
+        resultPath.textContent = `${result.mode} · saved to ${result.savedPath}`;
+        resultCard.classList.remove("d-none");
+        clearVideosBtn.classList.remove("d-none");
+
+        // Completed => persist prompt (localStorage); the image is already
+        // remembered server-side, just sync the UI.
+        localStorage.setItem(PROMPT_KEY, form.elements["prompt"].value);
+        showSavedPrompt();
+        savedImagePath = result.inputImagePath || null;
+        if (savedImagePath) imageInput.value = ""; // clear picker; server reuses it next time
+        showSavedImage();
+
+        // Upscaled copy (if requested)
+        if (result.upscaled) {
+            const uUrl = "/Upscale/Download?name=" + encodeURIComponent(result.upscaled.fileName);
+            upscaledVideo.src = uUrl;
+            upscaledDownload.href = uUrl;
+            const speedNote = result.upscaled.speed ? ` · ${result.upscaled.speed}x speed` : "";
+            upscaledPath.textContent = `${result.upscaled.factor}x → ${result.upscaled.height}p${speedNote} · saved to ${result.upscaled.savedPath}`;
+            upscaledCard.classList.remove("d-none");
+        } else if (result.upscaleError) {
+            upscaleWarning.textContent = "Video generated, but upscaling failed: " + result.upscaleError;
+            upscaleWarning.classList.remove("d-none");
+        }
+    }
+
+    // Shared POST + render for both Generate and Extend.
+    async function runJob(endpoint, label) {
         try {
             const data = new FormData(form);
             if (!document.getElementById("audio").checked) data.set("audio", "false");
@@ -575,54 +657,39 @@
             if (!speedUpChk.checked) data.set("speedUp", "false");
             // No new file? The server automatically reuses the remembered image.
 
-            const resp = await fetch("/Video/Generate", { method: "POST", body: data });
+            const resp = await fetch(endpoint, { method: "POST", body: data });
             const result = await resp.json();
 
             if (cancelRequested) {
                 // User already cancelled; widget removed and notice shown — ignore the late result.
             } else if (resp.ok && result.ok) {
-                progressBar.style.width = "100%";
-                progressBar.textContent = "100%";
-                const url = "/Video/Download?name=" + encodeURIComponent(result.fileName);
-                resultVideo.src = url;
-                resultDownload.href = url;
-                resultPath.textContent = `${result.mode} · saved to ${result.savedPath}`;
-                resultCard.classList.remove("d-none");
-                clearVideosBtn.classList.remove("d-none");
-
-                // Generation completed => persist prompt (localStorage); the image is
-                // already remembered server-side, just sync the UI.
-                localStorage.setItem(PROMPT_KEY, form.elements["prompt"].value);
-                showSavedPrompt();
-                savedImagePath = result.inputImagePath || null;
-                if (savedImagePath) imageInput.value = ""; // clear picker; server reuses it next time
-                showSavedImage();
-
-                // Upscaled copy (if requested)
-                if (result.upscaled) {
-                    const uUrl = "/Upscale/Download?name=" + encodeURIComponent(result.upscaled.fileName);
-                    upscaledVideo.src = uUrl;
-                    upscaledDownload.href = uUrl;
-                    const speedNote = result.upscaled.speed ? ` · ${result.upscaled.speed}x speed` : "";
-                    upscaledPath.textContent = `${result.upscaled.factor}x → ${result.upscaled.height}p${speedNote} · saved to ${result.upscaled.savedPath}`;
-                    upscaledCard.classList.remove("d-none");
-                } else if (result.upscaleError) {
-                    upscaleWarning.textContent = "Video generated, but upscaling failed: " + result.upscaleError;
-                    upscaleWarning.classList.remove("d-none");
-                }
+                showResult(result);
             } else {
                 throw new Error(result.error || ("HTTP " + resp.status));
             }
         } catch (err) {
             if (!cancelRequested) {
-                errorCard.textContent = "Generation failed: " + err.message;
+                errorCard.textContent = label + " failed: " + err.message;
                 errorCard.classList.remove("d-none");
             }
         } finally {
-            clearInterval(pollTimer);
-            progressCard.classList.add("d-none");
-            btn.disabled = false;
+            endRun();
         }
+    }
+
+    form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        if (!requirePrompt()) return;
+        beginRun("submitting…");
+        await runJob("/Video/Generate", "Generation");
+    });
+
+    // Extend: chain N clips off each other's last frame and stitch them.
+    extendBtn.addEventListener("click", async function () {
+        if (!requirePrompt()) return;
+        const n = parseInt(document.getElementById("segments").value, 10) || 2;
+        beginRun(`stitching ${n} segments — this runs ${n} generations back-to-back…`);
+        await runJob("/Video/Extend", "Extend");
     });
 
     checkHealth();

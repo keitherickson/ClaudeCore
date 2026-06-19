@@ -27,6 +27,24 @@ builder.Services.AddHttpClient<LtxVideoClient>((sp, client) =>
     client.BaseAddress = new Uri(opts.BaseUrl);
     client.Timeout = TimeSpan.FromMinutes(opts.GenerationTimeoutMinutes);
 });
+
+// ComfyUI NVFP4 backend (the "fast" model). Typed HttpClient with a generous
+// timeout since /prompt is polled to completion.
+builder.Services.Configure<ComfyUiOptions>(builder.Configuration.GetSection(ComfyUiOptions.SectionName));
+builder.Services.AddHttpClient<ComfyUiVideoBackend>((sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<ComfyUiOptions>>().Value;
+    client.BaseAddress = new Uri(opts.BaseUrl);
+    client.Timeout = TimeSpan.FromMinutes(opts.GenerationTimeoutMinutes);
+});
+
+// Model switch: the registry of selectable models + the persisted active selection,
+// and both backends exposed as ILtxVideoBackend so LtxVideoService can route by key.
+builder.Services.Configure<VideoModelsOptions>(builder.Configuration.GetSection(VideoModelsOptions.SectionName));
+builder.Services.AddSingleton<ActiveModelStore>();
+builder.Services.AddScoped<ILtxVideoBackend>(sp => sp.GetRequiredService<LtxVideoClient>());
+builder.Services.AddScoped<ILtxVideoBackend>(sp => sp.GetRequiredService<ComfyUiVideoBackend>());
+
 builder.Services.AddScoped<LtxVideoService>();
 // Process control for the LTX server (admin page: status + restart).
 builder.Services.AddSingleton<LtxServerControl>();

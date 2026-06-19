@@ -179,52 +179,7 @@ public class VideoController : Controller
             _lastImage.Set(imagePath);
 
             // 2. Optionally upscale the saved original and save an upscaled copy.
-            object? upscaled = null;
-            string? upscaleError = null;
-            if (upscale)
-            {
-                try
-                {
-                    if (!_upscaler.IsReady(out var problem))
-                        throw new InvalidOperationException(problem ?? "Upscaler is not ready.");
-
-                    // Maxine's VideoEffectsApp only accepts H.264 input; transcode HEVC/etc. first.
-                    // The saved file is already H.264 (converted in place above), so this is
-                    // normally a no-op; if it does transcode, delete the %TEMP% copy after use.
-                    var upscaleSource = await _speed.EnsureH264Async(result.SavedPath, ct);
-                    var upscaleTemp = string.Equals(upscaleSource, result.SavedPath, StringComparison.OrdinalIgnoreCase)
-                        ? null : upscaleSource;
-
-                    var srcHeight = VideoProbe.TryGetHeight(upscaleSource)
-                        ?? throw new InvalidOperationException("Could not read the generated video's height.");
-
-                    var factor = upscaleFactor is 2 or 3 or 4 ? upscaleFactor : 2;
-                    var target = srcHeight * factor; // exact 2x/3x/4x => valid SuperRes engine
-
-                    var up = await _upscaler.UpscaleAsync(upscaleSource, "SuperRes", target, upscaleMode, 0f, ct);
-                    if (upscaleTemp != null)
-                        try { System.IO.File.Delete(upscaleTemp); } catch { /* best effort */ }
-
-                    // Optionally re-time the upscaled clip to play faster.
-                    var upFileName = up.FileName;
-                    var upSavedPath = up.SavedPath;
-                    double? appliedSpeed = null;
-                    if (speedUp && speedFactor > 1.0)
-                    {
-                        var sped = await _speed.RetimeAsync(up.SavedPath, speedFactor, ct);
-                        upFileName = sped.FileName;
-                        upSavedPath = sped.SavedPath;
-                        appliedSpeed = sped.Speed;
-                    }
-
-                    upscaled = new { fileName = upFileName, savedPath = upSavedPath, factor, height = target, speed = appliedSpeed };
-                }
-                catch (Exception ex)
-                {
-                    upscaleError = ex.Message;
-                    _logger.LogError(ex, "Integrated upscale failed");
-                }
-            }
+            var outcome = await ApplyUpscaleAsync(result.SavedPath, upscale, upscaleFactor, upscaleMode, speedUp, speedFactor, ct);
 
             return Json(new
             {
@@ -233,8 +188,8 @@ public class VideoController : Controller
                 savedPath = result.SavedPath,
                 mode = audioPath is not null ? "audio-to-video" : imagePath is null ? "text-to-video" : "image-to-video",
                 inputImagePath = imagePath,
-                upscaled,
-                upscaleError,
+                upscaled = outcome.Upscaled,
+                upscaleError = outcome.Error,
             });
         }
         catch (LtxServerException ex)
@@ -246,6 +201,196 @@ public class VideoController : Controller
         {
             _logger.LogError(ex, "Generation error");
             return StatusCode(500, new { ok = false, error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Generates a chain of clips, each conditioned on the previous clip's final
+    /// frame, then stitches them into one longer video. This is the "Extend"
+    /// workflow: it gets past the per-generation duration cap by re-feeding the
+    /// last frame as the next segment's starting image — the same conditioning
+    /// primitive image-to-video uses. <paramref name="extraPrompts"/> (one line per
+    /// extension segment) gives a rough prompt timeline; blank lines reuse the main
+    /// prompt. Uploaded/AI audio is intentionally not supported here (it can't be
+    /// sliced per segment); the synchronized-audio toggle still applies per clip.
+    /// </summary>
+    [HttpPost]
+    [RequestSizeLimit(314_572_800)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 314_572_800)]
+    public async Task<IActionResult> Extend(
+        [FromForm] string prompt,
+        [FromForm] string? extraPrompts,
+        [FromForm] int segments,
+        [FromForm] string? resolution,
+        [FromForm] int duration,
+        [FromForm] int fps,
+        [FromForm] string? aspectRatio,
+        [FromForm] string? cameraMotion,
+        [FromForm] string? negativePrompt,
+        [FromForm] bool audio,
+        [FromForm] bool upscale,
+        [FromForm] int upscaleFactor,
+        [FromForm] int upscaleMode,
+        [FromForm] bool speedUp,
+        [FromForm] double speedFactor,
+        IFormFile? image,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return BadRequest(new { ok = false, error = "Prompt is required." });
+
+        segments = Math.Clamp(segments, 2, 8); // >=2 to be an extend; cap runaway GPU time
+
+        try
+        {
+            // The first segment can start from an uploaded image (or the remembered
+            // one), exactly like Generate. Later segments start from a tail frame.
+            string? startImage = null;
+            if (image is { Length: > 0 })
+            {
+                startImage = await _service.StageImageAsync(image, ct);
+            }
+            else
+            {
+                var last = _lastImage.Get();
+                if (_service.IsStagedInputFile(last)) startImage = last;
+            }
+
+            // Per-segment prompts: main prompt drives segment 1, then one line each
+            // from extraPrompts; blank or missing lines fall back to the main prompt.
+            var extra = (extraPrompts ?? "")
+                .Replace("\r\n", "\n").Split('\n')
+                .Select(s => s.Trim())
+                .ToList();
+            string PromptFor(int i)
+            {
+                if (i == 0) return prompt;
+                var line = i - 1 < extra.Count ? extra[i - 1] : "";
+                return string.IsNullOrWhiteSpace(line) ? prompt : line;
+            }
+
+            var reso = string.IsNullOrWhiteSpace(resolution) ? "1080p" : resolution;
+            var dur = duration <= 0 ? 5 : duration;
+            var theFps = fps <= 0 ? 24 : fps;
+            var ar = string.IsNullOrWhiteSpace(aspectRatio) ? "16:9" : aspectRatio;
+            var cam = string.IsNullOrWhiteSpace(cameraMotion) ? "none" : cameraMotion;
+
+            // Generate the chain. Each clip's last frame conditions the next.
+            var segmentPaths = new List<string>();
+            string? condImage = startImage;
+            for (var i = 0; i < segments; i++)
+            {
+                var req = new GenerateVideoRequest
+                {
+                    Prompt = PromptFor(i),
+                    Resolution = reso,
+                    Duration = dur,
+                    Fps = theFps,
+                    AspectRatio = ar,
+                    CameraMotion = cam,
+                    NegativePrompt = negativePrompt ?? "",
+                    Audio = audio,
+                    ImagePath = condImage,
+                };
+
+                var seg = await _service.GenerateAsync(req, ct);
+                segmentPaths.Add(seg.SavedPath);
+
+                if (i < segments - 1)
+                    condImage = await _speed.ExtractLastFrameAsync(seg.SavedPath, _service.InputDirectory, ct);
+            }
+
+            // Stitch into one clip in the video output dir, then drop the segments
+            // (the stitched result supersedes them; they're also raw HEVC).
+            var stitchName = $"extended_{DateTime.Now:yyyyMMdd_HHmmss}_{segments}seg.mp4";
+            var stitchPath = _service.GetOutputFilePath(stitchName);
+            await _speed.ConcatAsync(segmentPaths, stitchPath, ct);
+            foreach (var p in segmentPaths)
+                try { System.IO.File.Delete(p); } catch { /* best effort */ }
+
+            // Extend succeeded => remember (or clear) the starting image like Generate.
+            _lastImage.Set(startImage);
+
+            var outcome = await ApplyUpscaleAsync(stitchPath, upscale, upscaleFactor, upscaleMode, speedUp, speedFactor, ct);
+
+            return Json(new
+            {
+                ok = true,
+                fileName = stitchName,
+                savedPath = stitchPath,
+                mode = $"extended · {segments} segments",
+                inputImagePath = startImage,
+                upscaled = outcome.Upscaled,
+                upscaleError = outcome.Error,
+            });
+        }
+        catch (LtxServerException ex)
+        {
+            _logger.LogError(ex, "LTX extend failed");
+            return StatusCode(502, new { ok = false, error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Extend error");
+            return StatusCode(500, new { ok = false, error = ex.Message });
+        }
+    }
+
+    /// <summary>Outcome of the optional upscale (+ speed-up) post-step.</summary>
+    private sealed record UpscaleOutcome(object? Upscaled, string? Error);
+
+    /// <summary>
+    /// Shared upscale tail used by both Generate and Extend: optionally upscales
+    /// <paramref name="savedPath"/> with Maxine and re-times the result, returning a
+    /// JSON-ready descriptor (or the error, so the video itself still succeeds).
+    /// </summary>
+    private async Task<UpscaleOutcome> ApplyUpscaleAsync(
+        string savedPath, bool upscale, int upscaleFactor, int upscaleMode,
+        bool speedUp, double speedFactor, CancellationToken ct)
+    {
+        if (!upscale) return new UpscaleOutcome(null, null);
+        try
+        {
+            if (!_upscaler.IsReady(out var problem))
+                throw new InvalidOperationException(problem ?? "Upscaler is not ready.");
+
+            // Maxine's VideoEffectsApp only accepts H.264 input; transcode HEVC/etc.
+            // first. A user-facing generated file is already H.264, so this is
+            // normally a no-op; if it does transcode, delete the %TEMP% copy after.
+            var upscaleSource = await _speed.EnsureH264Async(savedPath, ct);
+            var upscaleTemp = string.Equals(upscaleSource, savedPath, StringComparison.OrdinalIgnoreCase)
+                ? null : upscaleSource;
+
+            var srcHeight = VideoProbe.TryGetHeight(upscaleSource)
+                ?? throw new InvalidOperationException("Could not read the generated video's height.");
+
+            var factor = upscaleFactor is 2 or 3 or 4 ? upscaleFactor : 2;
+            var target = srcHeight * factor; // exact 2x/3x/4x => valid SuperRes engine
+
+            var up = await _upscaler.UpscaleAsync(upscaleSource, "SuperRes", target, upscaleMode, 0f, ct);
+            if (upscaleTemp != null)
+                try { System.IO.File.Delete(upscaleTemp); } catch { /* best effort */ }
+
+            // Optionally re-time the upscaled clip to play faster.
+            var upFileName = up.FileName;
+            var upSavedPath = up.SavedPath;
+            double? appliedSpeed = null;
+            if (speedUp && speedFactor > 1.0)
+            {
+                var sped = await _speed.RetimeAsync(up.SavedPath, speedFactor, ct);
+                upFileName = sped.FileName;
+                upSavedPath = sped.SavedPath;
+                appliedSpeed = sped.Speed;
+            }
+
+            return new UpscaleOutcome(
+                new { fileName = upFileName, savedPath = upSavedPath, factor, height = target, speed = appliedSpeed },
+                null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Integrated upscale failed");
+            return new UpscaleOutcome(null, ex.Message);
         }
     }
 

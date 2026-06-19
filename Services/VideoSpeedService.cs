@@ -185,6 +185,84 @@ public sealed class VideoSpeedService
         try { File.Delete(temp); } catch { /* temp cleanup is best effort */ }
     }
 
+    /// <summary>
+    /// Extracts the final frame of <paramref name="videoPath"/> as a PNG into
+    /// <paramref name="destDir"/> and returns its path. This is the primitive
+    /// behind "Extend": the last frame of one clip becomes the conditioning image
+    /// (frame 0) of the next LTX generation, so the segments join continuously.
+    /// </summary>
+    public async Task<string> ExtractLastFrameAsync(string videoPath, string destDir, CancellationToken ct = default)
+    {
+        if (!File.Exists(videoPath))
+            throw new FileNotFoundException("Video to extend was not found.", videoPath);
+
+        Directory.CreateDirectory(destDir);
+        var outPath = Path.Combine(destDir, $"tail_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.png");
+
+        // -sseof -1 seeks ~1s before the end; -update 1 overwrites the output on
+        // every decoded frame, so the file is left holding the very last frame.
+        var args = new List<string>
+        {
+            "-y", "-hide_banner", "-loglevel", "error",
+            "-sseof", "-1", "-i", videoPath,
+            "-update", "1", "-q:v", "2", "-an",
+            outPath,
+        };
+        _log.LogInformation("Extracting last frame for extend: {In} -> {Out}", videoPath, outPath);
+        var (exit, stderr) = await RunFfmpegAsync(args, ct);
+        if (exit != 0 || !File.Exists(outPath))
+            throw new InvalidOperationException($"ffmpeg last-frame extract failed (exit {exit}).\n{stderr}".Trim());
+        return outPath;
+    }
+
+    /// <summary>
+    /// Concatenates <paramref name="inputs"/> (in order) into a single H.264 MP4 at
+    /// <paramref name="outPath"/> and returns that path. Re-encodes across the seams
+    /// so clips from separate LTX generations join cleanly, and keeps audio when the
+    /// inputs have it. All inputs must share resolution/fps (chained LTX segments do).
+    /// </summary>
+    public async Task<string> ConcatAsync(IReadOnlyList<string> inputs, string outPath, CancellationToken ct = default)
+    {
+        if (inputs.Count == 0)
+            throw new ArgumentException("No segments to stitch.", nameof(inputs));
+        foreach (var p in inputs)
+            if (!File.Exists(p)) throw new FileNotFoundException("Segment to stitch was not found.", p);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+
+        // The concat demuxer reads a list file; ffmpeg accepts forward slashes on
+        // Windows, and single quotes in a path are escaped as '\'' per its syntax.
+        var listPath = Path.Combine(Path.GetTempPath(), $"concat_{Guid.NewGuid():N}.txt");
+        var sb = new StringBuilder();
+        foreach (var p in inputs)
+            sb.Append("file '").Append(p.Replace('\\', '/').Replace("'", "'\\''")).Append("'\n");
+        await File.WriteAllTextAsync(listPath, sb.ToString(), ct);
+
+        var withAudio = await HasAudioStreamAsync(inputs[0], ct);
+        var args = new List<string>
+        {
+            "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "concat", "-safe", "0", "-i", listPath,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        };
+        if (withAudio) { args.AddRange(new[] { "-c:a", "aac" }); }
+        else { args.Add("-an"); }
+        args.AddRange(new[] { "-movflags", "+faststart", outPath });
+
+        _log.LogInformation("Stitching {Count} segments (audio={Audio}) -> {Out}", inputs.Count, withAudio, outPath);
+        try
+        {
+            var (exit, stderr) = await RunFfmpegAsync(args, ct);
+            if (exit != 0 || !File.Exists(outPath))
+                throw new InvalidOperationException($"ffmpeg concat failed (exit {exit}).\n{stderr}".Trim());
+        }
+        finally
+        {
+            try { File.Delete(listPath); } catch { /* best effort */ }
+        }
+        return outPath;
+    }
+
     // --- core ---------------------------------------------------------------
 
     private async Task<SpeedResult> RunRetimeAsync(string inputPath, double speed, string outPath, bool keepAudio, CancellationToken ct)

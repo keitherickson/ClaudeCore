@@ -13,15 +13,28 @@ public sealed record VideoResult(string FileName, string SavedPath, string Serve
 /// </summary>
 public sealed class LtxVideoService
 {
-    private readonly LtxVideoClient _client;
+    private readonly IEnumerable<ILtxVideoBackend> _backends;
+    private readonly ActiveModelStore _activeModel;
     private readonly LtxVideoOptions _options;
     private readonly ILogger<LtxVideoService> _logger;
 
-    public LtxVideoService(LtxVideoClient client, IOptions<LtxVideoOptions> options, ILogger<LtxVideoService> logger)
+    public LtxVideoService(
+        IEnumerable<ILtxVideoBackend> backends,
+        ActiveModelStore activeModel,
+        IOptions<LtxVideoOptions> options,
+        ILogger<LtxVideoService> logger)
     {
-        _client = client;
+        _backends = backends;
+        _activeModel = activeModel;
         _options = options.Value;
         _logger = logger;
+    }
+
+    /// <summary>The backend handling the currently-selected model (falls back to the first registered).</summary>
+    private ILtxVideoBackend Active()
+    {
+        var key = _activeModel.Active.Backend;
+        return _backends.FirstOrDefault(b => b.Key == key) ?? _backends.First();
     }
 
     public string OutputDirectory => _options.OutputDirectory;
@@ -29,13 +42,22 @@ public sealed class LtxVideoService
     /// <summary>Staging dir for uploaded conditioning images.</summary>
     public string InputDirectory => _options.InputDirectory;
 
-    public Task<LtxHealth?> GetHealthAsync(CancellationToken ct = default) => _client.GetHealthAsync(ct);
+    public Task<LtxHealth?> GetHealthAsync(CancellationToken ct = default) => Active().GetHealthAsync(ct);
 
-    public Task<GenerationProgress?> GetProgressAsync(CancellationToken ct = default) => _client.GetProgressAsync(ct);
+    public Task<GenerationProgress?> GetProgressAsync(CancellationToken ct = default) => Active().GetProgressAsync(ct);
 
-    public Task<string> GetModelSpecsRawAsync(CancellationToken ct = default) => _client.GetModelSpecsRawAsync(ct);
+    public Task<string> GetModelSpecsRawAsync(CancellationToken ct = default) => Active().GetModelSpecsRawAsync(ct);
 
-    public Task<string> GetHealthRawAsync(CancellationToken ct = default) => _client.GetHealthRawAsync(ct);
+    /// <summary>
+    /// Raw LTX Desktop /health JSON for the Admin "LTX server" card. This is always
+    /// the LTX Desktop server specifically (its port/model/GPU/VRAM), independent of
+    /// which model is active for generation.
+    /// </summary>
+    public Task<string> GetHealthRawAsync(CancellationToken ct = default)
+    {
+        var ltx = _backends.OfType<LtxVideoClient>().FirstOrDefault();
+        return ltx?.GetHealthRawAsync(ct) ?? Task.FromResult("{}");
+    }
 
     /// <summary>Saves an uploaded conditioning image to a local path the server can open, and returns that path.</summary>
     public async Task<string> StageImageAsync(IFormFile image, CancellationToken ct = default)
@@ -75,7 +97,7 @@ public sealed class LtxVideoService
 
     public async Task<VideoResult> GenerateAsync(GenerateVideoRequest request, CancellationToken ct = default)
     {
-        var response = await _client.GenerateAsync(request, ct);
+        var response = await Active().GenerateAsync(request, ct);
         if (response.Status != "complete" || string.IsNullOrEmpty(response.VideoPath))
             throw new LtxServerException(500, $"Generation did not complete (status={response.Status}).");
 
