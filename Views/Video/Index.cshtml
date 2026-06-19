@@ -503,10 +503,15 @@
         statusBadge.textContent = text;
     }
 
+    // Active model label from the last health check, shown alongside "server online".
+    let activeModelLabel = "";
+    const onlineText = () => activeModelLabel ? ("server online · " + activeModelLabel) : "server online";
+
     async function isServerOnline() {
         try {
             const r = await fetch("/Video/Health");
             const d = await r.json();
+            if (d.activeModel) activeModelLabel = d.activeModel;
             return !!(d.ok && d.health);
         } catch {
             return false;
@@ -515,7 +520,7 @@
 
     async function checkHealth() {
         const online = await isServerOnline();
-        setLtxStatus(online ? "bg-success" : "bg-danger", online ? "server online" : "server offline");
+        setLtxStatus(online ? "bg-success" : "bg-danger", online ? onlineText() : "server offline");
     }
 
     // After a cancel restarts the server: show "restarting", then poll until it's
@@ -529,7 +534,7 @@
                 // /health answers before the server is fully ready for generation,
                 // so hold "restarting…" a bit longer (Ltx:RestartReadyDelayMs) first.
                 setTimeout(() => {
-                    setLtxStatus("bg-success", "server online");
+                    setLtxStatus("bg-success", onlineText());
                     genNotice.classList.add("d-none"); // clear the "cancelled — restarting" notice
                 }, @restartReadyDelayMs);
             } else if (++tries > 60) {

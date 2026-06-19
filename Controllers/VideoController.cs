@@ -67,11 +67,11 @@ public class VideoController : Controller
         try
         {
             var health = await _service.GetHealthAsync(ct);
-            return Json(new { ok = true, health });
+            return Json(new { ok = true, health, activeModel = _service.ActiveModelLabel });
         }
         catch (Exception ex)
         {
-            return Json(new { ok = false, error = ex.Message });
+            return Json(new { ok = false, error = ex.Message, activeModel = _service.ActiveModelLabel });
         }
     }
 

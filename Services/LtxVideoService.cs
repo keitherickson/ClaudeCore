@@ -37,6 +37,9 @@ public sealed class LtxVideoService
         return _backends.FirstOrDefault(b => b.Key == key) ?? _backends.First();
     }
 
+    /// <summary>Display label of the currently-selected video model (for the page's status badge).</summary>
+    public string ActiveModelLabel => _activeModel.Active.Label;
+
     public string OutputDirectory => _options.OutputDirectory;
 
     /// <summary>Staging dir for uploaded conditioning images.</summary>
