@@ -40,6 +40,7 @@ foreach ($p in @($Python, $Server)) {
 }
 
 $env:AUDIO_PORT           = "$Port"
+$env:CUDA_DEVICE_ORDER    = "PCI_BUS_ID" # stable index across mixed 5090/4090
 $env:CUDA_VISIBLE_DEVICES = "$Gpu"   # pin the audio model to this GPU only
 # AUDIO_MODEL / AUDIO_STEPS / AUDIO_MAX_SECONDS use audio_server.py defaults unless set here.
 

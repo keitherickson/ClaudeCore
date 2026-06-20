@@ -395,6 +395,9 @@
     async function switchModel(id) {
         const status = $("model-status");
         status.textContent = "Switching…";
+        // Disable the radios while the backend lifecycle runs.
+        const radios = document.querySelectorAll('input[name="active-model"]');
+        radios.forEach(r => r.disabled = true);
         try {
             const body = new URLSearchParams({ id });
             const r = await fetch("/Admin/SetModel", {
@@ -404,10 +407,32 @@
             });
             const d = await r.json();
             if (!d.ok) { status.textContent = "Switch failed: " + (d.error || "see logs"); return; }
-            status.textContent = "Active model updated.";
+
+            const stopped = (d.stopped && d.stopped.length) ? " (freed " + d.stopped.join(", ") + ")" : "";
+            if (d.backendWasUp) {
+                status.textContent = "Active model updated — " + d.backend + " already running" + stopped + ".";
+            } else {
+                // The backend was just started (detached); poll Status until its port binds.
+                status.textContent = "Starting " + d.backend + "…" + stopped + " this can take ~30–90s.";
+                const upKey = d.backend === "ComfyUI" ? "comfy" : "ltx";
+                let online = false;
+                for (let i = 0; i < 40 && !online; i++) {
+                    await new Promise(res => setTimeout(res, 3000));
+                    try {
+                        const s = await (await fetch("/Admin/Status")).json();
+                        online = s.ok && s[upKey] && s[upKey].portListening;
+                    } catch { /* keep polling */ }
+                }
+                status.textContent = online
+                    ? d.backend + " is up. (Model weights load on the first generation.)"
+                    : "Still starting " + d.backend + " — use Refresh to check.";
+            }
             await loadModels();
+            await loadStatus();
         } catch (err) {
             status.textContent = "Switch failed: " + err.message;
+        } finally {
+            radios.forEach(r => r.disabled = false);
         }
     }
 

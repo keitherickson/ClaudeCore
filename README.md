@@ -133,6 +133,8 @@ The Generate flow can target more than one video model, chosen at runtime from t
 - **Two backends behind one interface.** `ILtxVideoBackend` (Generate/Progress/Health/Specs) has two implementations: `LtxVideoClient` (key `LtxDesktop` — the BF16 LTX-2.3 server described above, **full features incl. audio + Extend**, the default) and `ComfyUiVideoBackend` (key `ComfyUI` — an NVFP4 LTX-2.3 model on a local ComfyUI server, **faster on Blackwell** via FP4 tensor cores). `LtxVideoService` routes each call to whichever model is active; staging/output handling is shared and backend-agnostic.
 - **Runtime selection, persisted.** `ActiveModelStore` remembers the chosen model in a small state file (`.active-model.txt`, same pattern as `LastImageStore`), so it survives restarts. The registry of selectable models lives in `VideoModelsOptions` (defined in code — each entry's backend key is coupled to an implementation). `POST /Admin/SetModel` switches it; `GET /Admin/Models` lists them; the Admin page renders a radio-card switch.
 - **ComfyUI backend.** Builds the validated text-to-video graph (UNETLoader FP4 transformer + distilled LoRA + checkpoint-sourced VAE + Gemma text encoder), submits it to ComfyUI's `/prompt`, polls `/history` to completion, and downloads the clip via `/view`, saving it with an `.mp4` name so the existing H.264 normalization (§1) turns the VP9/WebM render into a browser-friendly MP4. Configured under the `ComfyUI` section.
+- **Backend lifecycle on switch (`VideoBackendCoordinator`).** Selecting a model doesn't just flip a pointer — it brings that model's backend **process** up and frees the GPU it needs. The behavior is derived purely from each backend's configured `GpuIndex`, with **no 1-vs-2-GPU mode flag**: backends sharing the target's GPU are **co-resident** and get stopped first (single 5090, or both video backends pinned to it — only one 22B model fits in 32 GB at a time); backends on a *different* GPU are left running (e.g. the audio server on a second card keeps serving while video switches). The selected backend is then started **detached** (binds in ~tens of seconds; weights load lazily on the first generation), and the Admin switch polls `/Admin/Status` until its port is up. `LtxServerControl`/`ComfyUiServerControl` provide the start/stop/port-check; `VideoBackendReconciler` re-applies the active model's backend on app startup so the choice survives reboots.
+- **One or two GPUs, by config.** NVFP4/ComfyUI **must** run on the Blackwell **5090** (`ComfyUI:GpuIndex`) — the Ada **4090** has no native FP4 path. The launchers set `CUDA_DEVICE_ORDER=PCI_BUS_ID` so indices stay stable across mixed cards. On a single GPU every index is `0` and the co-resident rule serializes everything that needs that card; adding the second GPU is a config change (move an index, e.g. audio → the 4090), not a code change.
 - **Limitation (current):** the ComfyUI/NVFP4 backend is **text-to-video only** — it ignores image and audio conditioning, so image-to-video, audio-to-video, and Extend require the BF16 default. The switch labels make this explicit.
 
 ---
@@ -166,17 +168,19 @@ The Generate flow can target more than one video model, chosen at runtime from t
 | `Maxine` | Upscaler exe + SDK | `ExecutablePath`, `ModelDir` (writable copy), `SdkBinDir`, `OpenCvBinDir`, `OutputDirectory`, `Codec` (`avc1`), `TimeoutMinutes` |
 | `VideoSpeed` | ffmpeg re-time | `FfmpegPath`, `OutputDirectory`, `InputDirectory` (Speed page staging), `TimeoutMinutes` |
 | `LocalAudio` | AI sound generation (self-hosted) | `BaseUrl` (`:8770`), `GpuIndex` (CUDA device for the audio model, default `1`), `MaxDurationSeconds`, `TimeoutMinutes`, `StartScriptPath`, `StopScriptPath` |
+| `ComfyUI` | NVFP4 video backend | `BaseUrl` (`:8188`), `GpuIndex` (CUDA device — **must be the 5090**, default `0`), `StartScriptPath`, `StopScriptPath`, `Checkpoint`, `DistilledLora`, `TextEncoder`, `Steps`, `Sampler`, `GenerationTimeoutMinutes` |
 
 > `VideoSpeed:FfmpegPath` points at an absolute, **version-specific** path under the winget package folder; a `winget upgrade` of ffmpeg changes it and must be updated.
 
-### Targeting separate GPUs for video and audio
+### One or two GPUs — pinning by `GpuIndex`
 
-On a multi-GPU machine the LTX **video** server and the Stable Audio **audio** server can each be pinned to their own card so both models stay resident at once (no per-generation reload, no shared-VRAM OOM). Each launcher exports `CUDA_VISIBLE_DEVICES`, so the model only ever sees its assigned GPU:
+Every server is pinned to a physical CUDA device via its `GpuIndex`, exported as `CUDA_VISIBLE_DEVICES` by the launcher (which also sets `CUDA_DEVICE_ORDER=PCI_BUS_ID` so the index is **stable across mixed cards**). The model switch's `VideoBackendCoordinator` derives its behavior from these indices alone — there is no separate one-vs-two-GPU mode:
 
-- `Ltx:GpuIndex` (default `0`) → passed to `run-ltx-server.ps1` / `restart-ltx-server.ps1` as `-Gpu`; the logon auto-start (`start-keithvision.ps1`) hard-codes the matching `0`.
-- `LocalAudio:GpuIndex` (default `1`) → passed to `run-audio-server.ps1` as `-Gpu` when the Admin page starts it.
+- `Ltx:GpuIndex` (default `0`) → `run-ltx-server.ps1` / `restart-ltx-server.ps1` / `stop-ltx-server.ps1` as `-Gpu`; `start-keithvision.ps1` matches it at logon.
+- `ComfyUI:GpuIndex` (default `0`) → `run-comfyui.ps1` as `-Gpu`. **Must be the Blackwell 5090** — NVFP4 has no native path on an Ada 4090.
+- `LocalAudio:GpuIndex` (default `1`) → `run-audio-server.ps1` as `-Gpu` when the Admin page starts it.
 
-Swap the two indices (or set both to `0`) to change the mapping; the C# server-control services read these values and pass them through automatically. On a single-GPU box, set both to `0`.
+**Single GPU (today):** every index is `0`. The two video backends are then *co-resident* on the 5090, so switching models stops one before starting the other (only one 22B model fits in 32 GB). **Two GPUs (5090 + 4090):** keep both video backends on the 5090 (`Ltx`/`ComfyUI` = the 5090's index) and move audio to the 4090 (`LocalAudio:GpuIndex` = the 4090's index) so sound generation runs **concurrently** with video. Moving the second card in is a config edit, not a code change — confirm via `nvidia-smi` which index is the 5090 and set `ComfyUI:GpuIndex` accordingly.
 
 ---
 

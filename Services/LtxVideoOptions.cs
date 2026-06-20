@@ -35,6 +35,13 @@ public sealed class LtxVideoOptions
     public string RestartScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\restart-ltx-server.ps1";
 
     /// <summary>
+    /// PowerShell script that stops the LTX server WITHOUT relaunching it. Used by the
+    /// /Admin model switch to free this GPU's VRAM when moving off the BF16 model so a
+    /// co-resident backend (NVFP4/ComfyUI on the same card) can take over.
+    /// </summary>
+    public string StopScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\stop-ltx-server.ps1";
+
+    /// <summary>
     /// After a cancel-triggered restart, how long (ms) the Generate page keeps
     /// showing "server restarting…" once /health first answers, before flipping
     /// to "server online" — /health responds before the server is fully ready.

@@ -27,6 +27,9 @@ public sealed class LtxServerControl
     /// <summary>Port parsed from Ltx:BaseUrl (defaults to 8765 if it can't be read).</summary>
     public int Port => Uri.TryCreate(_options.BaseUrl, UriKind.Absolute, out var u) && u.Port > 0 ? u.Port : 8765;
 
+    /// <summary>GPU index the LTX server is pinned to (Ltx:GpuIndex).</summary>
+    public int GpuIndex => _options.GpuIndex;
+
     /// <summary>True if anything is currently listening on the LTX port (cheap, no HTTP call).</summary>
     public bool IsPortListening()
     {
@@ -71,6 +74,55 @@ public sealed class LtxServerControl
 
         _logger.LogInformation("Hard-stop: launching detached LTX restart on port {Port} (GPU {Gpu})", Port, _options.GpuIndex);
         Process.Start(psi); // detached on purpose — the relaunched server must outlive this call
+    }
+
+    /// <summary>
+    /// Runs the stop script (kills the LTX python + the port owner) WITHOUT
+    /// relaunching. Used by the model switch to free this GPU's VRAM when moving off
+    /// the BF16 model. Returns the script's output.
+    /// </summary>
+    public async Task<RestartResult> StopAsync(CancellationToken ct = default)
+    {
+        var script = _options.StopScriptPath;
+        if (!File.Exists(script))
+            return new RestartResult(false, $"Stop script not found at {script}");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            ArgumentList =
+            {
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", script, "-Port", Port.ToString()
+            },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        using var proc = new Process { StartInfo = psi };
+        var sb = new System.Text.StringBuilder();
+        proc.OutputDataReceived += (_, e) => { if (e.Data is not null) sb.AppendLine(e.Data); };
+        proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) sb.AppendLine(e.Data); };
+
+        proc.Start();
+        proc.BeginOutputReadLine();
+        proc.BeginErrorReadLine();
+
+        using var cap = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cap.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            await proc.WaitForExitAsync(cap.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            return new RestartResult(false, "Stop timed out after 30s.\n" + sb);
+        }
+
+        return new RestartResult(proc.ExitCode == 0, sb.ToString().Trim());
     }
 
     /// <summary>

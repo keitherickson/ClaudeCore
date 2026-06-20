@@ -55,6 +55,7 @@ if (Get-PortPids $Port) { throw "Port $Port is still in use after stop attempt."
 # 3. Relaunch the server hidden, same contract as start-keithvision.ps1.
 $env:LTX_APP_DATA_DIR     = $AppData
 $env:LTX_PORT             = "$Port"
+$env:CUDA_DEVICE_ORDER    = "PCI_BUS_ID" # stable index across mixed 5090/4090
 $env:CUDA_VISIBLE_DEVICES = "$Gpu"   # pin the video model to this GPU only
 Start-Process -FilePath $LtxPy -ArgumentList "-u", $LtxLaunch -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $LogDir "ltx-server.out.log") `

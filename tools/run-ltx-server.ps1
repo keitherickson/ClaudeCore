@@ -43,6 +43,7 @@ if (Get-Process -Name "LTX Desktop" -ErrorAction SilentlyContinue) {
 # The server reads all of its config from environment variables.
 $env:LTX_APP_DATA_DIR     = $AppData   # reuse already-downloaded models + outputs
 $env:LTX_PORT             = "$Port"
+$env:CUDA_DEVICE_ORDER    = "PCI_BUS_ID" # stable index across mixed 5090/4090
 $env:CUDA_VISIBLE_DEVICES = "$Gpu"     # pin the video model to this GPU only
 # LTX_AUTH_TOKEN intentionally unset  -> auth middleware is bypassed (localhost only).
 

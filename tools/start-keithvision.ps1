@@ -56,6 +56,7 @@ if ((Test-Path $LtxPy) -and -not (Port-Listening 8765)) {
     $ltxEnv = @{
         LTX_APP_DATA_DIR     = "C:\Users\keith\AppData\Local\LTXDesktop"
         LTX_PORT             = "8765"
+        CUDA_DEVICE_ORDER    = "PCI_BUS_ID"   # stable index across mixed 5090/4090
         CUDA_VISIBLE_DEVICES = "0"
     }
     for ($attempt = 1; $attempt -le 3; $attempt++) {

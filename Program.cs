@@ -46,8 +46,14 @@ builder.Services.AddScoped<ILtxVideoBackend>(sp => sp.GetRequiredService<LtxVide
 builder.Services.AddScoped<ILtxVideoBackend>(sp => sp.GetRequiredService<ComfyUiVideoBackend>());
 
 builder.Services.AddScoped<LtxVideoService>();
-// Process control for the LTX server (admin page: status + restart).
+// Process control for the LTX server (admin page: status + restart + stop).
 builder.Services.AddSingleton<LtxServerControl>();
+// Process control for the ComfyUI NVFP4 server (started/stopped by the model switch).
+builder.Services.AddSingleton<ComfyUiServerControl>();
+// Topology-aware backend lifecycle: switching models stops co-resident (same-GPU)
+// backends and starts the selected one. Reconciler re-applies it on startup.
+builder.Services.AddSingleton<VideoBackendCoordinator>();
+builder.Services.AddHostedService<VideoBackendReconciler>();
 // Remembers the last-used starting image across requests/restarts.
 builder.Services.AddSingleton<LastImageStore>();
 

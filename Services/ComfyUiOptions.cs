@@ -13,6 +13,21 @@ public sealed class ComfyUiOptions
     /// <summary>ComfyUI server base URL.</summary>
     public string BaseUrl { get; set; } = "http://127.0.0.1:8188";
 
+    /// <summary>
+    /// Physical GPU index (CUDA device ordinal) ComfyUI is pinned to, passed to
+    /// run-comfyui.ps1 as -Gpu and exported as CUDA_VISIBLE_DEVICES. MUST resolve to
+    /// the Blackwell (5090) card — NVFP4 has no native path on the Ada (4090). When
+    /// this equals another video backend's GpuIndex the model switch treats them as
+    /// co-resident and frees one before starting the other (see VideoBackendCoordinator).
+    /// </summary>
+    public int GpuIndex { get; set; } = 0;
+
+    /// <summary>PowerShell launcher that starts ComfyUI (model switch → NVFP4).</summary>
+    public string StartScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\run-comfyui.ps1";
+
+    /// <summary>PowerShell script that stops ComfyUI (frees its VRAM when leaving NVFP4).</summary>
+    public string StopScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\stop-comfyui.ps1";
+
     /// <summary>NVFP4 transformer + VAE checkpoint (in models/checkpoints).</summary>
     public string Checkpoint { get; set; } = "ltx-2.3-22b-dev-nvfp4.safetensors";
 

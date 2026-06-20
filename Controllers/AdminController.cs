@@ -23,6 +23,8 @@ public class AdminController : Controller
     private readonly VideoSpeedService _speed;
     private readonly SystemStatsService _stats;
     private readonly AudioServerControl _audioControl;
+    private readonly ComfyUiServerControl _comfyControl;
+    private readonly VideoBackendCoordinator _backends;
     private readonly SoundGenService _soundGen;
     private readonly ActiveModelStore _activeModel;
     private readonly VideoModelsOptions _videoModels;
@@ -35,6 +37,8 @@ public class AdminController : Controller
         VideoSpeedService speed,
         SystemStatsService stats,
         AudioServerControl audioControl,
+        ComfyUiServerControl comfyControl,
+        VideoBackendCoordinator backends,
         SoundGenService soundGen,
         ActiveModelStore activeModel,
         IOptions<VideoModelsOptions> videoModels,
@@ -46,6 +50,8 @@ public class AdminController : Controller
         _speed = speed;
         _stats = stats;
         _audioControl = audioControl;
+        _comfyControl = comfyControl;
+        _backends = backends;
         _soundGen = soundGen;
         _activeModel = activeModel;
         _videoModels = videoModels.Value;
@@ -62,15 +68,33 @@ public class AdminController : Controller
             models = _videoModels.Models.Select(m => new { m.Id, m.Label, m.Backend, m.Description }),
         });
 
-    /// <summary>Switches which model the Generate flow uses. Persisted across restarts.</summary>
+    /// <summary>
+    /// Switches which model the Generate flow uses. Persists the choice, then brings
+    /// the selected backend up and frees any co-resident (same-GPU) backend via the
+    /// coordinator. Starting is detached — the page polls Status to watch the backend
+    /// come online; <c>backendWasUp</c> tells it whether a wait is even needed.
+    /// </summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult SetModel([FromForm] string id)
+    public async Task<IActionResult> SetModel([FromForm] string id, CancellationToken ct)
     {
         if (!_activeModel.Set(id))
             return BadRequest(new { ok = false, error = $"Unknown model id '{id}'." });
-        _logger.LogInformation("Active video model switched to {Id}", id);
-        return Json(new { ok = true, activeId = _activeModel.ActiveId });
+
+        var sw = await _backends.ActivateAsync(id, ct);
+        _logger.LogInformation("Active video model switched to {Id} (backend {Backend}, wasUp={WasUp})",
+            id, sw.Backend, sw.WasAlreadyUp);
+
+        return Json(new
+        {
+            ok = true,
+            activeId = _activeModel.ActiveId,
+            backend = sw.Backend,
+            backendPort = sw.Port,
+            backendWasUp = sw.WasAlreadyUp,
+            stopped = sw.StoppedCoResident,
+            warning = sw.Ok ? null : sw.Error,
+        });
     }
 
     [HttpGet]
@@ -119,6 +143,14 @@ public class AdminController : Controller
             error = audioErr,
         };
 
+        // --- ComfyUI NVFP4 server — on-demand, brought up by the model switch ---
+        var comfy = new
+        {
+            portListening = _comfyControl.IsPortListening(),
+            port = _comfyControl.Port,
+            gpuIndex = _comfyControl.GpuIndex,
+        };
+
         // --- Maxine upscaler (on-demand exe, not a server) ---
         var maxineReady = _maxine.IsReady(out var maxineProblem);
 
@@ -142,6 +174,7 @@ public class AdminController : Controller
             timeUtc = DateTime.UtcNow,
             ltx,
             audio,
+            comfy,
             maxine = new { ready = maxineReady, error = maxineProblem },
             ffmpeg = new { ready = ffmpegReady, error = ffmpegProblem, path = _speed.FfmpegPath },
             app,
