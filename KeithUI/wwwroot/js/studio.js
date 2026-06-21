@@ -246,7 +246,7 @@
         this.size = [240, 80];
     });
 
-    define("keithui/speed", "Speed Up", "#454", function () {
+    define("Speed/speed", "Speed Up", "#454", function () {
         this.addInput("video", LiteGraph.VIDEO);
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "factor", "2", null, { values: ["1.5", "2", "3", "4"] });
@@ -367,7 +367,7 @@
         "keithui/save": { slot: "video", label: "Save / Preview" },
         "Upscaling/upscale_ai": { slot: "video", label: "Upscale (AI)" },
         "Upscaling/upscale_maxine": { slot: "video", label: "Upscale (MAXINE)" },
-        "keithui/speed": { slot: "video", label: "Speed Up" },
+        "Speed/speed": { slot: "video", label: "Speed Up" },
     };
     function isLinked(n, slotName) {
         if (!n.inputs) return false;

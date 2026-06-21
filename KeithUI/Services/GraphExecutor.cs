@@ -227,7 +227,7 @@ public sealed class GraphExecutor
                 await log($"Upscale [Maxine {factor}x]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
             }
-            case "keithui/speed":
+            case "Speed/speed":
             {
                 if (vidIn is null) { await log("Speed Up: no video input — skipped"); return null; }
                 var factor = double.TryParse(Str(0, "2"), out var sp) ? sp : 2.0;
