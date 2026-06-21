@@ -86,7 +86,7 @@
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
         this.addWidget("text", "prompt", "a cat playing with a ball of yarn");
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
-        this.addWidget("number", "duration", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
+        this.addWidget("number", "duration", 20, null, { min: 1, max: 30, step: 10, precision: 0 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
         this.size = [280, 150];
     });
