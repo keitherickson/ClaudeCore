@@ -46,14 +46,40 @@ public sealed class GraphExecutor
                 if (l.ValueKind == JsonValueKind.Array && l.GetArrayLength() >= 4)
                     linkMap[l[0].GetInt64()] = (l[1].GetInt64(), l[2].GetInt32());
 
+            // Only run the nodes that actually feed a Preview Save — walk upstream
+            // from each Save node along the links. Floating nodes and dead-end
+            // branches that don't reach an output are ignored. (No Save node at all
+            // => fall back to running everything, preserving the last-output result.)
+            var byId = graph.nodes.GroupBy(n => n.id).ToDictionary(g => g.Key, g => g.First());
+            var saveRoots = graph.nodes.Where(n => n.type == "Preview Save/save").Select(n => n.id).ToList();
+            HashSet<long> active;
+            if (saveRoots.Count > 0)
+            {
+                active = new HashSet<long>();
+                var stack = new Stack<long>(saveRoots);
+                while (stack.Count > 0)
+                {
+                    var id = stack.Pop();
+                    if (!active.Add(id) || !byId.TryGetValue(id, out var node)) continue;
+                    foreach (var slot in node.inputs ?? new())
+                        if (slot.link is long lid && linkMap.TryGetValue(lid, out var src) && !active.Contains(src.node))
+                            stack.Push(src.node);
+                }
+            }
+            else
+            {
+                active = graph.nodes.Select(n => n.id).ToHashSet();
+            }
+            var runNodes = graph.nodes.Where(n => active.Contains(n.id)).ToList();
+
             var outputs = new Dictionary<long, string>();
             var done = new HashSet<long>();
             string? finalVideo = null;
 
-            while (done.Count < graph.nodes.Count)
+            while (done.Count < runNodes.Count)
             {
                 var progressed = false;
-                foreach (var n in graph.nodes)
+                foreach (var n in runNodes)
                 {
                     if (done.Contains(n.id)) continue;
                     var inputs = new Dictionary<string, string>();
