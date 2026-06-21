@@ -138,7 +138,7 @@
     LiteGraph.clearRegisteredTypes();
 
     // --- Sources -----------------------------------------------------------
-    define("keithui/load_image", "Load Image", "#355", function () {
+    define("Image/load_image", "Load Image", "#355", function () {
         var self = this;
         this.addOutput("image", LiteGraph.IMAGE);
         var fileW = this.addWidget("text", "file", "");
@@ -302,7 +302,7 @@
 
     function starterGraph() {
         graph.clear();
-        var img = LiteGraph.createNode("keithui/load_image"); img.pos = [30, 73]; graph.add(img);
+        var img = LiteGraph.createNode("Image/load_image"); img.pos = [30, 73]; graph.add(img);
         var gen = LiteGraph.createNode("keithui/generate");   gen.pos = [298, 73]; graph.add(gen);
         var up = LiteGraph.createNode("keithui/upscale_ai");  up.pos = [663, 74]; graph.add(up);
         var save = LiteGraph.createNode("keithui/save");      save.pos = [943, 82]; graph.add(save);
@@ -392,7 +392,7 @@
             var req = REQUIRED_INPUT[n.type];
             if (req && !isLinked(n, req.slot))
                 issues.push({ node: n.id, msg: req.label + " has no " + req.slot + " input connected — wire a video into it." });
-            if (n.type === "keithui/load_image") {
+            if (n.type === "Image/load_image") {
                 var fileW = n.widgets && n.widgets[0];
                 if (!fileW || !fileW.value)
                     issues.push({ node: n.id, msg: "Load Image has no file — click 📁 upload to pick an image." });
@@ -450,7 +450,7 @@
     // in-constructor re-attach sees an empty path. Do it here once values exist.
     function reattachThumbnails() {
         graph._nodes.forEach(function (n) {
-            if (n.type !== "keithui/load_image") return;
+            if (n.type !== "Image/load_image") return;
             var fileW = n.widgets && n.widgets[0];
             if (!fileW || !fileW.value) return;
             n._img = new Image();

@@ -108,7 +108,7 @@ public sealed class GraphExecutor
 
         switch (n.type)
         {
-            case "keithui/load_image":
+            case "Image/load_image":
             {
                 var file = Str(0);
                 await log($"Load Image: {(string.IsNullOrWhiteSpace(file) ? "(none)" : Path.GetFileName(file))}");
