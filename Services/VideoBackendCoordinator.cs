@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>Outcome of activating a model's backend.</summary>
 /// <param name="Ok">Whether the activation request was valid and dispatched.</param>

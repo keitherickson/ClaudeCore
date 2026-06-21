@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>Result of a completed AI upscale, after the video is saved to the output folder.</summary>
 public sealed record ComfyUpscaleResult(string FileName, string SavedPath, int Width, int Height);

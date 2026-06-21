@@ -1,4 +1,4 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Configuration for talking to the locally self-hosted LTX-2 inference server

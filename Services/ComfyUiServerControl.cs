@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Controls the ComfyUI NVFP4 server process (tools/run-comfyui.ps1 on port 8188,

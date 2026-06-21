@@ -1,4 +1,4 @@
-namespace ClaudeCore.Models;
+namespace KeithVision.Models;
 
 public class ErrorViewModel
 {

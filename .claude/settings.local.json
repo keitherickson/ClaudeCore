@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx --version)"
+      "Bash(npx --version)",
+      "Bash(grep -rnoP \"\\(?<![\\\\\\\\\\\\\\\\]\\)ClaudeCore\\(?![\\\\\\\\\\\\\\\\]\\)\\\\S*\" --include=*.cs --include=*.cshtml .)",
+      "Bash(sort -t: -k3)",
+      "Bash(awk -F: '{print $NF}')",
+      "Bash(grep -v 'C:\\\\\\\\\\\\\\\\ClaudeCore')",
+      "Bash(grep -vi \"tools\\\\\\\\\\\\\\\\\")",
+      "Bash(xargs -0 sed -i 's/ClaudeCore /KeithVision /g')",
+      "Bash(sed -i 's/ClaudeCore\\\\.csproj/KeithVision.csproj/g; s/-Name \"ClaudeCore\"/-Name \"KeithVision\"/g' tools/publish-keithvision.ps1)",
+      "Bash(echo \"=== verify: folder paths still C:\\\\\\\\ClaudeCore\\\\\\\\ClaudeCore \\(sample\\) ===\")",
+      "Bash(grep -v 'C:\\\\\\\\ClaudeCore')"
     ]
   }
 }

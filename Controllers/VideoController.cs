@@ -1,8 +1,8 @@
-using ClaudeCore.Models.Ltx;
-using ClaudeCore.Services;
+using KeithVision.Models.Ltx;
+using KeithVision.Services;
 using Microsoft.AspNetCore.Mvc;
 
-namespace ClaudeCore.Controllers;
+namespace KeithVision.Controllers;
 
 public class VideoController : Controller
 {

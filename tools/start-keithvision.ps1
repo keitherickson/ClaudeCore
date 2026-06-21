@@ -6,7 +6,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 
 $AppDir    = "C:\ClaudeCore\KeithVision"
-$AppExe    = Join-Path $AppDir "ClaudeCore.exe"
+$AppExe    = Join-Path $AppDir "KeithVision.exe"
 $Url       = "http://127.0.0.1:5080"
 $LtxPy     = "C:\Users\keith\AppData\Local\LTXDesktop\python\python.exe"
 $LtxLaunch = "C:\ClaudeCore\ClaudeCore\tools\ltx_launch.py"

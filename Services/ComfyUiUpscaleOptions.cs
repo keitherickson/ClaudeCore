@@ -1,4 +1,4 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Configuration for AI video upscaling via ComfyUI ("ComfyUiUpscale" section) — the

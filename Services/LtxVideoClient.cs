@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using ClaudeCore.Models.Ltx;
+using KeithVision.Models.Ltx;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Typed HttpClient over the local LTX-2 inference server's REST API (the BF16 2.3

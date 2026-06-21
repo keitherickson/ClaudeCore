@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using ClaudeCore.Models;
+using KeithVision.Models;
 
-namespace ClaudeCore.Controllers;
+namespace KeithVision.Controllers;
 
 public class HomeController : Controller
 {

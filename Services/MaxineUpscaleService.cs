@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 public sealed record UpscaleResult(string FileName, string SavedPath, string Command);
 

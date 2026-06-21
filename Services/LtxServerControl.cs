@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>Outcome of a restart attempt: whether it succeeded plus the script's console output.</summary>
 public sealed record RestartResult(bool Ok, string Output);

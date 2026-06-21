@@ -1,6 +1,6 @@
-using ClaudeCore.Models.Ltx;
+using KeithVision.Models.Ltx;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// A video-generation backend the Generate flow can be pointed at. Two

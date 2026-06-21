@@ -1,4 +1,4 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>Configuration for the live GPU footer readout shown on every page.</summary>
 public sealed class GpuOptions

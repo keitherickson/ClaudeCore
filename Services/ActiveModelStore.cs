@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Remembers, server-side, which video model the Generate flow should use, toggled

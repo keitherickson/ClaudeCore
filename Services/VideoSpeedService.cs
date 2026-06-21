@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 public sealed record SpeedResult(string FileName, string SavedPath, double Speed, string Command);
 

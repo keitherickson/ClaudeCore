@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace ClaudeCore.Models.Ltx;
+namespace KeithVision.Models.Ltx;
 
 /// <summary>
 /// Body for POST /api/generate. Field names mirror the LTX backend's

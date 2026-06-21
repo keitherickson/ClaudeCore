@@ -1,4 +1,4 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>Default selections for the Generate Video form ("VideoDefaults" config section).</summary>
 public sealed class VideoDefaultsOptions

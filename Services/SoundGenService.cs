@@ -1,8 +1,8 @@
 using System.Text.Json;
-using ClaudeCore.Models.SoundGen;
+using KeithVision.Models.SoundGen;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Generates a sound effect from a text prompt via the self-hosted Stable Audio

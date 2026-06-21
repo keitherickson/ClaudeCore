@@ -1,7 +1,7 @@
-using ClaudeCore.Models.Ltx;
+using KeithVision.Models.Ltx;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// <see cref="ILtxVideoBackend"/> over a ComfyUI server running the NVFP4 LTX-2.3

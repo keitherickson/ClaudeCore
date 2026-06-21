@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Controls the local Stable Audio server process (tools/run-audio-server.ps1 on

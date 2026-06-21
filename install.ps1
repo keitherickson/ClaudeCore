@@ -18,7 +18,7 @@
     Idempotent: safe to re-run. It skips anything already in place.
 
 .PARAMETER AppRoot
-    Path to the ClaudeCore project (folder containing ClaudeCore.csproj).
+    Path to the ClaudeCore project (folder containing KeithVision.csproj).
 
 .PARAMETER SkipPrereqs
     Skip the winget prerequisite installs (assume .NET/git already present).
@@ -113,8 +113,8 @@ if ($appItem -and $appItem.PSDrive) { $driveName = $appItem.PSDrive.Name } else 
 $freeGB = [math]::Round((Get-PSDrive $driveName).Free / 1GB, 0)
 if ($freeGB -lt 100) { Warn "Only ${freeGB} GB free; LTX weights need about 70 GB." } else { Ok "${freeGB} GB free." }
 
-if (-not (Test-Path (Join-Path $AppRoot 'ClaudeCore.csproj'))) {
-    throw "ClaudeCore.csproj not found under AppRoot '$AppRoot'. Pass -AppRoot [path]."
+if (-not (Test-Path (Join-Path $AppRoot 'KeithVision.csproj'))) {
+    throw "KeithVision.csproj not found under AppRoot '$AppRoot'. Pass -AppRoot [path]."
 }
 Ok "ClaudeCore project: $AppRoot"
 
@@ -224,7 +224,7 @@ Push-Location $AppRoot
 try {
     if (Have dotnet) {
         Note "Restoring and building (dotnet build)..."
-        dotnet build "ClaudeCore.csproj" -c Release --nologo -v minimal
+        dotnet build "KeithVision.csproj" -c Release --nologo -v minimal
         Ok "Build succeeded."
     } else {
         Warn "dotnet not found; install the .NET 10 SDK then run 'dotnet build'."
@@ -284,7 +284,7 @@ Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. (generation) start the LTX server with LTX Desktop closed:" -ForegroundColor Cyan
 Write-Host "       $AppRoot\tools\run-ltx-server.ps1" -ForegroundColor Cyan
 Write-Host "  2. start the app:" -ForegroundColor Cyan
-Write-Host "       dotnet run --project `"$AppRoot\ClaudeCore.csproj`"" -ForegroundColor Cyan
+Write-Host "       dotnet run --project `"$AppRoot\KeithVision.csproj`"" -ForegroundColor Cyan
 Write-Host "  3. open the URL it prints. Pages: /Video (generate), /Upscale (Maxine 4K), /Admin (health)." -ForegroundColor Cyan
 Write-Host "  4. (optional) for AI sound generation, set up the local Stable Audio server (see InstallationSteps.md) and run tools\run-audio-server.ps1." -ForegroundColor Cyan
 Write-Host "  See InstallationSteps.md for full details and the Downloads index." -ForegroundColor Cyan

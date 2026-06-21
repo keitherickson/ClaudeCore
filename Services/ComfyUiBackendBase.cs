@@ -1,9 +1,9 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using ClaudeCore.Models.Ltx;
+using KeithVision.Models.Ltx;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Shared plumbing for any <see cref="ILtxVideoBackend"/> that drives a ComfyUI

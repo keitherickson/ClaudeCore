@@ -1,4 +1,4 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Configuration for the ComfyUI NVFP4 backend ("ComfyUI" config section). Mirrors

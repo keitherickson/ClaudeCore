@@ -17,14 +17,14 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Project    = "C:\ClaudeCore\ClaudeCore\ClaudeCore.csproj",
+    [string]$Project    = "C:\ClaudeCore\ClaudeCore\KeithVision.csproj",
     [string]$PublishDir = "C:\ClaudeCore\KeithVision",
     [switch]$NoRestart
 )
 $ErrorActionPreference = "Stop"
 
 Write-Host "Stopping running published app (to free locked files)..." -ForegroundColor Cyan
-Get-Process -Name "ClaudeCore" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "KeithVision" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
 Write-Host "Publishing Release build to $PublishDir ..." -ForegroundColor Cyan

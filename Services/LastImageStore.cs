@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Remembers, server-side, the last successfully-used starting image so the next

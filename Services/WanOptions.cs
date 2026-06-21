@@ -1,4 +1,4 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Configuration for the Wan 2.2 14B image-to-video backend ("Wan" config section).

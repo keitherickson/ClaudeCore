@@ -1,7 +1,7 @@
-using ClaudeCore.Models.Ltx;
+using KeithVision.Models.Ltx;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>Result of a completed generation, after the video is copied to the local output folder.</summary>
 public sealed record VideoResult(string FileName, string SavedPath, string ServerPath);

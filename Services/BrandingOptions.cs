@@ -1,4 +1,4 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>UI branding read from configuration ("Branding" section).</summary>
 public sealed class BrandingOptions

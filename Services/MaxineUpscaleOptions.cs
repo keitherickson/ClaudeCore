@@ -1,8 +1,8 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Configuration for upscaling via the NVIDIA Maxine Video Effects SDK.
-/// ClaudeCore shells out to the SDK's VideoEffectsApp.exe per job.
+/// KeithVision shells out to the SDK's VideoEffectsApp.exe per job.
 ///
 /// The model + runtime DLLs come from the Maxine "Video Effects SDK"
 /// redistributable installer (separate, EULA-gated download). After installing

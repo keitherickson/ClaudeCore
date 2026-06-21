@@ -1,7 +1,7 @@
-using ClaudeCore.Models.Ltx;
+using KeithVision.Models.Ltx;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// <see cref="ILtxVideoBackend"/> for Wan 2.2 14B <b>image-to-video</b> on the shared

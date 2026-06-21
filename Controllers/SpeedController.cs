@@ -1,7 +1,7 @@
-using ClaudeCore.Services;
+using KeithVision.Services;
 using Microsoft.AspNetCore.Mvc;
 
-namespace ClaudeCore.Controllers;
+namespace KeithVision.Controllers;
 
 /// <summary>
 /// Standalone "speed up a video" page: upload a clip, pick a speed, get a

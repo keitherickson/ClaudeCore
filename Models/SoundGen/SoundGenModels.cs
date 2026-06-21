@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace ClaudeCore.Models.SoundGen;
+namespace KeithVision.Models.SoundGen;
 
 /// <summary>Body for POST /generate on the local Stable Audio server.</summary>
 public sealed class LocalAudioRequest

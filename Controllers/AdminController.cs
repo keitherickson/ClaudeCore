@@ -2,11 +2,11 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
-using ClaudeCore.Services;
+using KeithVision.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
-namespace ClaudeCore.Controllers;
+namespace KeithVision.Controllers;
 
 /// <summary>
 /// Local administration dashboard: health of the LTX server, the Maxine upscaler,

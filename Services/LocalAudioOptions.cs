@@ -1,8 +1,8 @@
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Configuration for the self-hosted Stable Audio Open server (tools/audio_server.py,
-/// launched by tools/run-audio-server.ps1). ClaudeCore calls it over HTTP on
+/// launched by tools/run-audio-server.ps1). KeithVision calls it over HTTP on
 /// localhost — no API key and no per-call cost, since it runs on the local GPU.
 /// </summary>
 public sealed class LocalAudioOptions

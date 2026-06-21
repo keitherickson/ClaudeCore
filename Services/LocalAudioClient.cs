@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using ClaudeCore.Models.SoundGen;
+using KeithVision.Models.SoundGen;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Typed HttpClient over the local Stable Audio server (tools/audio_server.py).

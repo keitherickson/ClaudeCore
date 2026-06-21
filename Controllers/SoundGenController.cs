@@ -1,7 +1,7 @@
-using ClaudeCore.Services;
+using KeithVision.Services;
 using Microsoft.AspNetCore.Mvc;
 
-namespace ClaudeCore.Controllers;
+namespace KeithVision.Controllers;
 
 /// <summary>
 /// Generates a sound effect from a text prompt via the self-hosted Stable Audio

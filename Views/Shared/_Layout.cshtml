@@ -1,5 +1,5 @@
-﻿@inject Microsoft.Extensions.Options.IOptions<ClaudeCore.Services.BrandingOptions> Branding
-@inject Microsoft.Extensions.Options.IOptions<ClaudeCore.Services.GpuOptions> GpuOpts
+﻿@inject Microsoft.Extensions.Options.IOptions<KeithVision.Services.BrandingOptions> Branding
+@inject Microsoft.Extensions.Options.IOptions<KeithVision.Services.GpuOptions> GpuOpts
 @{
     var appName = Branding.Value.AppName;
     var gpuPollMs = Math.Max(250, GpuOpts.Value.PollIntervalMs); // clamp to a sane minimum
@@ -13,7 +13,7 @@
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
-    <link rel="stylesheet" href="~/ClaudeCore.styles.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/KeithVision.styles.css" asp-append-version="true" />
 </head>
 <body>
     <header>

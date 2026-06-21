@@ -1,4 +1,4 @@
-using ClaudeCore.Services;
+using KeithVision.Services;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -87,7 +87,7 @@ builder.Services.Configure<VideoSpeedOptions>(builder.Configuration.GetSection(V
 builder.Services.AddScoped<VideoSpeedService>();
 
 // Self-hosted Stable Audio Open generative sound effects: a local Python server
-// (tools/run-audio-server.ps1) that ClaudeCore calls over HTTP — no API key and no
+// (tools/run-audio-server.ps1) that KeithVision calls over HTTP — no API key and no
 // per-call cost, runs on the local GPU. Generous timeout since diffusion can take
 // a while.
 builder.Services.Configure<LocalAudioOptions>(builder.Configuration.GetSection(LocalAudioOptions.SectionName));

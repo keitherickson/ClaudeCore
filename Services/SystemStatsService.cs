@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace ClaudeCore.Services;
+namespace KeithVision.Services;
 
 /// <summary>
 /// Samples system-wide CPU utilization once a second using the Win32
