@@ -196,7 +196,7 @@
     define("Sound/sound", "Generate Sound", "#553", function () {
         this.addOutput("audio", LiteGraph.AUDIO);
         addMultilineText(this, "prompt", "", 5);   // tall, inline-editable (same as Generate Video)
-        this.addWidget("number", "seconds", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
+        this.addWidget("number", "seconds", 21, null, { min: 1, max: 30, step: 10, precision: 0 });
         this.size = this.computeSize();
         if (this.size[0] < 300) this.size[0] = 300;
     });
