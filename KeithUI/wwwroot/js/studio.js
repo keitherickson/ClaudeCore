@@ -86,6 +86,20 @@
         this.size = [280, 150];
     });
 
+    // Multi-segment generation past the per-run duration cap: each segment is
+    // conditioned on the previous segment's last frame, then all are stitched.
+    define("keithui/extend", "Extend Video", "#345", function () {
+        this.addInput("image", LiteGraph.IMAGE);   // optional start frame (i2v / Wan)
+        this.addOutput("video", LiteGraph.VIDEO);
+        this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
+        this.addWidget("text", "prompt", "a drone shot flying over a coastline");
+        this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
+        this.addWidget("number", "secPerSeg", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
+        this.addWidget("number", "segments", 3, null, { min: 2, max: 8, step: 10, precision: 0 });
+        this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
+        this.size = [280, 170];
+    });
+
     // --- Post-processing ---------------------------------------------------
     define("keithui/upscale", "Upscale", "#534", function () {
         this.addInput("video", LiteGraph.VIDEO);
@@ -213,11 +227,12 @@
     function validateGraph() {
         var issues = [];
         graph._nodes.forEach(function (n) {
-            if (n.type === "keithui/generate") {
+            if (n.type === "keithui/generate" || n.type === "keithui/extend") {
+                var which = n.type === "keithui/extend" ? "Extend" : "Generate";
                 var model = n.widgets[0] && n.widgets[0].value;
                 var imageLinked = n.inputs && n.inputs[0] && n.inputs[0].link != null;
                 if (model === "wan2.2" && !imageLinked)
-                    issues.push({ node: n.id, msg: "Wan 2.2 is image-to-video — connect a Load Image to the Generate node (or pick BF16/NVFP4)." });
+                    issues.push({ node: n.id, msg: "Wan 2.2 is image-to-video — connect a Load Image to the " + which + " node (or pick BF16/NVFP4)." });
             }
         });
         return issues;

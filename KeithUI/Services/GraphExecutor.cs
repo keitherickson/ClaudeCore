@@ -150,6 +150,57 @@ public sealed class GraphExecutor
                 await log($"Generate Video [{model}]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
             }
+            case "keithui/extend":
+            {
+                var model = Str(0, "bf16-2.3");
+                await EnsureModelReady(model, log, ct);
+                var reso = Str(2, "540p");
+                var secPerSeg = Num(3, 5);
+                var segments = Math.Clamp(Num(4, 3), 2, 8);
+                var aspect = Str(5, "16:9");
+                await log($"Extend [{model}] {reso} {segments}×{secPerSeg}s — conditioning each segment on the previous tail frame…");
+
+                var segmentPaths = new List<string>();
+                string? condImage = imgIn;
+                for (var s = 0; s < segments; s++)
+                {
+                    var segReq = new GenerateVideoRequest
+                    {
+                        Prompt = Str(1),
+                        Resolution = reso,
+                        Duration = secPerSeg,
+                        Fps = _defaults.Fps,
+                        AspectRatio = aspect,
+                        ImagePath = condImage,
+                    };
+                    var segIndex = s;   // capture for the progress closure
+                    var segTask = _ltx.GenerateAsync(segReq, ct);
+                    while (await Task.WhenAny(segTask, Task.Delay(1500, ct)) != segTask)
+                    {
+                        try
+                        {
+                            var p = await _ltx.GetProgressAsync(ct);
+                            // Scale the per-segment percent into overall graph-node progress.
+                            if (p is not null)
+                                await emit(new { type = "node-progress", node = n.id, pct = (int)((segIndex + p.Progress / 100.0) / segments * 100) });
+                        }
+                        catch { /* progress is best-effort */ }
+                    }
+                    var seg = await segTask;
+                    segmentPaths.Add(seg.SavedPath);
+                    await log($"  segment {s + 1}/{segments}: {Path.GetFileName(seg.SavedPath)}");
+                    if (s < segments - 1)
+                        condImage = await _speed.ExtractLastFrameAsync(seg.SavedPath, _ltx.InputDirectory, ct);
+                }
+
+                var stitchName = $"studio_extended_{DateTime.Now:yyyyMMdd_HHmmss}_{segments}seg.mp4";
+                var stitchPath = _ltx.GetOutputFilePath(stitchName);
+                await _speed.ConcatAsync(segmentPaths, stitchPath, ct);
+                foreach (var p in segmentPaths)
+                    try { File.Delete(p); } catch { /* best effort — segments are superseded by the stitch */ }
+                await log($"Extend: stitched {segments} segments -> {stitchName}");
+                return stitchPath;
+            }
             case "keithui/upscale":
             {
                 if (vidIn is null) { await log("Upscale: no video input — skipped"); return null; }
