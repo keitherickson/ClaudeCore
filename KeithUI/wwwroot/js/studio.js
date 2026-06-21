@@ -65,15 +65,71 @@
         };
         w.mouse = function (event, pos, n) {
             if (event.type === LiteGraph.pointerevents_method + "down") {
-                var self = this;
-                window.lgcanvas.prompt(self.name, self.value, function (v) {
-                    self.value = v; if (self.callback) self.callback(v); n.setDirtyCanvas(true, true);
-                }, event, true);   // true => multi-line textarea editor
+                openInlineEditor(n, this);   // type right in the node (not a popup)
                 return true;
             }
             return false;
         };
         return w;
+    }
+
+    // Inline editing: classic LiteGraph has no DOM widgets, so we float a real
+    // <textarea> over the prompt box and keep it aligned with pan/zoom while open.
+    // Clicking the widget focuses it; typing edits in place; blur (click away)
+    // commits. One shared textarea serves whichever prompt is being edited.
+    var _ta = null, _edit = null, _raf = null;
+    function placeInlineEditor() {
+        if (!_edit) return;
+        var node = _edit.node, w = _edit.widget, ds = window.lgcanvas.ds, scale = ds.scale, margin = 15;
+        var c = ds.convertOffsetToCanvas([node.pos[0] + margin, node.pos[1] + (w.last_y || 0)]);
+        var rect = document.getElementById("graph").getBoundingClientRect();
+        var s = _ta.style;
+        s.left = (rect.left + window.scrollX + c[0]) + "px";
+        s.top = (rect.top + window.scrollY + c[1]) + "px";
+        s.width = ((node.size[0] - margin * 2) * scale) + "px";
+        s.height = ((w.computeSize()[1] - 4) * scale) + "px";
+        s.fontSize = (12 * scale) + "px";
+        s.lineHeight = (16 * scale) + "px";
+    }
+    function loopInlineEditor() {
+        if (!_edit) { _raf = null; return; }
+        placeInlineEditor();
+        _raf = requestAnimationFrame(loopInlineEditor);
+    }
+    function closeInlineEditor() {
+        if (!_edit) return;
+        _edit.widget.value = _ta.value;
+        if (_edit.widget.callback) _edit.widget.callback(_ta.value);
+        _edit.node.setDirtyCanvas(true, true);
+        _edit = null;
+        _ta.style.display = "none";
+    }
+    function openInlineEditor(node, widget) {
+        if (!document.getElementById("graph") || !window.lgcanvas) return;
+        if (!_ta) {
+            _ta = document.createElement("textarea");
+            var s = _ta.style;
+            s.position = "absolute"; s.zIndex = 50; s.resize = "none"; s.display = "none";
+            s.background = "#222"; s.color = "#e6e6e6"; s.border = "1px solid #2d6cdf";
+            s.borderRadius = "6px"; s.padding = "3px 6px"; s.boxSizing = "border-box";
+            s.outline = "none"; s.fontFamily = "Arial"; s.overflow = "auto";
+            document.body.appendChild(_ta);
+            _ta.addEventListener("input", function () {
+                if (_edit) { _edit.widget.value = _ta.value; _edit.node.setDirtyCanvas(true, true); }
+            });
+            _ta.addEventListener("blur", closeInlineEditor);
+            _ta.addEventListener("keydown", function (e) {
+                e.stopPropagation();           // don't let LiteGraph grab Delete/arrows/etc.
+                if (e.key === "Escape") _ta.blur();
+            });
+            _ta.addEventListener("wheel", function (e) { e.stopPropagation(); });
+        }
+        _edit = { node: node, widget: widget };
+        _ta.value = widget.value == null ? "" : widget.value;
+        _ta.style.display = "block";
+        placeInlineEditor();
+        setTimeout(function () { _ta.focus(); _ta.select(); }, 0);
+        if (_raf == null) loopInlineEditor();
     }
 
     // Drop LiteGraph's ~176 built-in stock nodes (math/const/logic/events/…) so the
