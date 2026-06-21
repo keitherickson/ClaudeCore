@@ -222,7 +222,7 @@
     define("keithui/upscale_ai", "Upscale (AI)", "#534", function () {
         this.addInput("video", LiteGraph.VIDEO);
         this.addOutput("video", LiteGraph.VIDEO);
-        this.addWidget("combo", "targetHeight", "1080", null, { values: ["720", "1080", "1440", "2160"] });
+        this.addWidget("combo", "targetHeight", "2160", null, { values: ["720", "1080", "1440", "2160"] });
         this.size = [240, 80];
     });
 
