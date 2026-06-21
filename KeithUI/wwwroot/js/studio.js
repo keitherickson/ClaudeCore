@@ -169,16 +169,28 @@
             this._img.onload = function () { self.setDirtyCanvas(true, true); };
             this._img.src = "/Studio/Image?path=" + encodeURIComponent(fileW.value);
         }
+        // Preview goes ON TOP: reserve a band at the top of the node body and start
+        // the file + upload widgets below it (widgets_start_y), so the widget order /
+        // serialization is unchanged — only the layout moves.
+        var IMG_TOP = 28, IMG_H = 120;
+        this.widgets_start_y = IMG_TOP + IMG_H + 8;
         this.onDrawBackground = function (ctx) {
-            if (this.flags.collapsed || !this._img || !this._img.width) return;
-            var pad = 8, top = 74; // below the two widgets
-            var w = this.size[0] - pad * 2;
-            var h = w * (this._img.height / this._img.width);
-            var maxH = this.size[1] - top - pad;
-            if (h > maxH) { h = maxH; w = h * (this._img.width / this._img.height); }
-            ctx.drawImage(this._img, (this.size[0] - w) / 2, top, w, h);
+            if (this.flags.collapsed) return;
+            var pad = 8, boxW = this.size[0] - pad * 2;
+            ctx.fillStyle = "#1f1f1f"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(pad, IMG_TOP, boxW, IMG_H, 6); else ctx.rect(pad, IMG_TOP, boxW, IMG_H);
+            ctx.fill(); ctx.stroke();
+            if (this._img && this._img.width) {
+                var w = boxW - 4, h = w * (this._img.height / this._img.width);
+                if (h > IMG_H - 4) { h = IMG_H - 4; w = h * (this._img.width / this._img.height); }
+                ctx.drawImage(this._img, (this.size[0] - w) / 2, IMG_TOP + (IMG_H - h) / 2, w, h);
+            } else {
+                ctx.fillStyle = "#666"; ctx.font = "11px Arial"; ctx.textAlign = "center";
+                ctx.fillText("no image", this.size[0] / 2, IMG_TOP + IMG_H / 2 + 4); ctx.textAlign = "left";
+            }
         };
-        this.size = [220, 210];
+        this.size = [220, 232];
     });
 
     define("keithui/sound", "Generate Sound", "#553", function () {
