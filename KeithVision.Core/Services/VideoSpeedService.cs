@@ -263,6 +263,87 @@ public sealed class VideoSpeedService
         return outPath;
     }
 
+    /// <summary>Probes a video's frame rate and duration (seconds) via ffprobe; null if unreadable.</summary>
+    public async Task<(double Fps, double DurationSec)?> TryGetMediaInfoAsync(string path, CancellationToken ct = default)
+    {
+        var probe = ResolveFfprobePath();
+        if (probe is null) return null;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = probe,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            foreach (var a in new[] { "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-show_entries", "format=duration", "-of", "default=nw=1", path })
+                psi.ArgumentList.Add(a);
+
+            using var proc = new Process { StartInfo = psi };
+            proc.Start();
+            var stdout = await ReadProbeOutputAsync(proc, ct);
+
+            double fps = 24, dur = 0;
+            foreach (var raw in stdout.Split('\n'))
+            {
+                var line = raw.Trim();
+                if (line.StartsWith("r_frame_rate=", StringComparison.Ordinal))
+                {
+                    var v = line["r_frame_rate=".Length..];
+                    var parts = v.Split('/');
+                    if (parts.Length == 2
+                        && double.TryParse(parts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out var n)
+                        && double.TryParse(parts[1], NumberStyles.Any, CultureInfo.InvariantCulture, out var d) && d != 0)
+                        fps = n / d;
+                    else if (double.TryParse(v, NumberStyles.Any, CultureInfo.InvariantCulture, out var f))
+                        fps = f;
+                }
+                else if (line.StartsWith("duration=", StringComparison.Ordinal))
+                {
+                    double.TryParse(line["duration=".Length..], NumberStyles.Any, CultureInfo.InvariantCulture, out dur);
+                }
+            }
+            if (fps <= 0) fps = 24;
+            return (fps, dur);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Splits <paramref name="inputPath"/> into ~<paramref name="segmentSeconds"/>-long MP4
+    /// segments in <paramref name="destDir"/> and returns their paths in order. Re-encodes
+    /// and forces a keyframe at each segment boundary so the cuts are clean and every frame
+    /// is preserved across the seams (used to upscale long clips in memory-bounded batches).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> SplitByTimeAsync(string inputPath, double segmentSeconds, string destDir, CancellationToken ct = default)
+    {
+        if (!File.Exists(inputPath))
+            throw new FileNotFoundException("Video to split was not found.", inputPath);
+        Directory.CreateDirectory(destDir);
+
+        var t = Math.Max(1, segmentSeconds).ToString("0.###", CultureInfo.InvariantCulture);
+        var stamp = $"seg_{DateTime.Now:yyyyMMddHHmmss}_{Guid.NewGuid():N}";
+        var pattern = Path.Combine(destDir, stamp + "_%03d.mp4");
+        var args = new List<string>
+        {
+            "-y", "-hide_banner", "-loglevel", "error", "-i", inputPath,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-force_key_frames", $"expr:gte(t,n_forced*{t})",
+            "-c:a", "aac",
+            "-f", "segment", "-segment_time", t, "-reset_timestamps", "1", "-segment_format", "mp4",
+            pattern,
+        };
+        _log.LogInformation("Splitting {In} into ~{T}s segments -> {Dir}", inputPath, t, destDir);
+        var (exit, stderr) = await RunFfmpegAsync(args, ct);
+        if (exit != 0)
+            throw new InvalidOperationException($"ffmpeg split failed (exit {exit}).\n{stderr}".Trim());
+
+        return Directory.GetFiles(destDir, stamp + "_*.mp4").OrderBy(p => p, StringComparer.Ordinal).ToList();
+    }
+
     // --- core ---------------------------------------------------------------
 
     private async Task<SpeedResult> RunRetimeAsync(string inputPath, double speed, string outPath, bool keepAudio, CancellationToken ct)

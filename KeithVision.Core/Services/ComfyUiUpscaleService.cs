@@ -21,16 +21,18 @@ public sealed class ComfyUiUpscaleService
     private readonly HttpClient _http;
     private readonly ComfyUiUpscaleOptions _o;
     private readonly ComfyUiServerControl _comfy;
+    private readonly VideoSpeedService _speed;   // ffmpeg split + concat for chunked upscaling
     private readonly ILogger<ComfyUiUpscaleService> _log;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public ComfyUiUpscaleService(
         HttpClient http, IOptions<ComfyUiUpscaleOptions> o, ComfyUiServerControl comfy,
-        ILogger<ComfyUiUpscaleService> log)
+        VideoSpeedService speed, ILogger<ComfyUiUpscaleService> log)
     {
         _http = http;
         _o = o.Value;
         _comfy = comfy;
+        _speed = speed;
         _log = log;
     }
 
@@ -67,6 +69,62 @@ public sealed class ComfyUiUpscaleService
     {
         await EnsureComfyUpAsync(ct);
 
+        // ComfyUI's ImageUpscaleWithModel builds the WHOLE upscaled sequence as one
+        // float32 tensor, so a long clip OOMs. The OOM is at the ESRGAN x4 output —
+        // 4× the SOURCE resolution (not the final target) — so budget against that.
+        // Cap each pass by upscaling in frame-batches: split the clip with ffmpeg,
+        // upscale each segment, then concat the results.
+        const long BudgetBytes = 4L * 1024 * 1024 * 1024; // ~4 GB peak per pass
+        var fullInput = Path.Combine(_o.InputDirectory, inputFileName);
+        long ew = 3840, eh = 2160;                         // ESRGAN output (assume 4K if unprobeable)
+        if (VideoProbe.TryGetDimensions(fullInput) is { } sd) { ew = 4L * sd.Width; eh = 4L * sd.Height; }
+        var framesPerChunk = (int)Math.Clamp(BudgetBytes / (ew * eh * 12), 4, 600);
+
+        var info = await _speed.TryGetMediaInfoAsync(fullInput, ct);
+        var fps = info?.Fps ?? 24;
+        var totalFrames = info is { DurationSec: > 0 } ? (int)Math.Ceiling(info.Value.DurationSec * fps) : 0;
+
+        // Small enough to upscale in a single pass.
+        if (totalFrames > 0 && totalFrames <= framesPerChunk)
+            return await RunOneAsync(inputFileName, width, height, ct);
+
+        List<string> segments;
+        try { segments = (await _speed.SplitByTimeAsync(fullInput, Math.Max(1, framesPerChunk / Math.Max(1, fps)), _o.InputDirectory, ct)).ToList(); }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Chunk split failed; attempting a single upscale pass");
+            return await RunOneAsync(inputFileName, width, height, ct);
+        }
+        if (segments.Count <= 1)
+        {
+            foreach (var s in segments) try { File.Delete(s); } catch { /* best effort */ }
+            return await RunOneAsync(inputFileName, width, height, ct);
+        }
+
+        _log.LogInformation("AI upscale chunked: {File} → {W}x{H} in {N} segments (~{F} frames each)",
+            inputFileName, width, height, segments.Count, framesPerChunk);
+        var upscaled = new List<string>();
+        try
+        {
+            foreach (var seg in segments)
+                upscaled.Add((await RunOneAsync(Path.GetFileName(seg), width, height, ct)).SavedPath);
+
+            var finalName = $"aiupscaled_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.mp4";
+            var finalPath = Path.Combine(_o.OutputDirectory, finalName);
+            await _speed.ConcatAsync(upscaled, finalPath, ct);
+            _log.LogInformation("AI-upscaled (chunked) video saved to {Dest}", finalPath);
+            return new ComfyUpscaleResult(finalName, finalPath, width, height);
+        }
+        finally
+        {
+            foreach (var s in segments) try { File.Delete(s); } catch { /* best effort */ }
+            foreach (var u in upscaled) try { File.Delete(u); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>Upscales one staged clip (a bare file name in ComfyUI's input dir) in a single pass.</summary>
+    private async Task<ComfyUpscaleResult> RunOneAsync(string inputFileName, int width, int height, CancellationToken ct)
+    {
         var graph = BuildGraph(inputFileName, width, height);
         using var submit = await _http.PostAsJsonAsync("/prompt", new { prompt = graph, client_id = "ccupscale" }, Json, ct);
         if (!submit.IsSuccessStatusCode)
