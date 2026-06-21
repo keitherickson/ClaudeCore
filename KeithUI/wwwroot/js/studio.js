@@ -195,9 +195,10 @@
 
     define("Sound/sound", "Generate Sound", "#553", function () {
         this.addOutput("audio", LiteGraph.AUDIO);
-        this.addWidget("text", "prompt", "distant thunder");
+        addMultilineText(this, "prompt", "", 5);   // tall, inline-editable (same as Generate Video)
         this.addWidget("number", "seconds", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
-        this.size = [240, 80];
+        this.size = this.computeSize();
+        if (this.size[0] < 300) this.size[0] = 300;
     });
 
     // Upload an audio file to use as the Generate Video audio track (audio-to-video).
@@ -446,6 +447,11 @@
                 var sndW = n.widgets && n.widgets[0];
                 if (!sndW || !sndW.value)
                     issues.push({ node: n.id, msg: "Load Sound has no file — click 📁 upload to pick an audio file." });
+            }
+            if (n.type === "Sound/sound") {
+                var sp = n.widgets && n.widgets[0] && n.widgets[0].value;
+                if (!sp || !String(sp).trim())
+                    issues.push({ node: n.id, msg: "Generate Sound needs a prompt — add one before running." });
             }
         });
         return issues;
