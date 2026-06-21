@@ -290,9 +290,9 @@
 
     function starterGraph() {
         graph.clear();
-        var gen = LiteGraph.createNode("keithui/generate"); gen.pos = [120, 120]; graph.add(gen);
-        var up = LiteGraph.createNode("keithui/upscale_ai");  up.pos = [460, 120]; graph.add(up);
-        var save = LiteGraph.createNode("keithui/save");    save.pos = [740, 140]; graph.add(save);
+        var gen = LiteGraph.createNode("keithui/generate"); gen.pos = [24, 70]; graph.add(gen);
+        var up = LiteGraph.createNode("keithui/upscale_ai");  up.pos = [391, 70]; graph.add(up);
+        var save = LiteGraph.createNode("keithui/save");    save.pos = [678, 70]; graph.add(save);
         gen.connect(0, up, 0);
         up.connect(0, save, 0);
         graph.start();
