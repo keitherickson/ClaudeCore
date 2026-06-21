@@ -418,11 +418,20 @@
             if (n.inputs[i].name === slotName && n.inputs[i].link != null) return true;
         return false;
     }
+    // "Hooked up" = wired into the graph via any input or output. Floating/unused
+    // nodes are ignored by validation (they won't affect the run).
+    function isHookedUp(n) {
+        if (n.inputs) for (var i = 0; i < n.inputs.length; i++) if (n.inputs[i].link != null) return true;
+        if (n.outputs) for (var j = 0; j < n.outputs.length; j++) if (n.outputs[j].links && n.outputs[j].links.length) return true;
+        return false;
+    }
 
     // Client-side checks before a (possibly minutes-long) run.
     function validateGraph() {
         var issues = [];
         graph._nodes.forEach(function (n) {
+            if (!isHookedUp(n)) return;   // only validate nodes wired into the graph
+
             if (n.type === "Video/generate" || n.type === "Video/extend") {
                 var which = n.type === "Video/extend" ? "Extend" : "Generate";
                 var model = n.widgets[0] && n.widgets[0].value;
