@@ -297,9 +297,24 @@
     });
 
     // --- Sink --------------------------------------------------------------
+    // Plays the result inline: the body reserves a black preview area that an
+    // HTML <video> element is floated over once a run produces a clip (see the
+    // in-node video player below). PREVIEW_TOP must match VIDEO_TOP there.
     define("Preview Save/save", "Preview Save", "#444", function () {
         this.addInput("video", LiteGraph.VIDEO);
-        this.size = [200, 40];
+        this.onDrawBackground = function (ctx) {
+            if (this.flags.collapsed) return;
+            var pad = 8, top = 26, w = this.size[0] - pad * 2, h = this.size[1] - top - pad;
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(pad, top, w, h, 4); else ctx.rect(pad, top, w, h);
+            ctx.fill();
+            if (!this._hasVideo) {
+                ctx.fillStyle = "#555"; ctx.font = "11px Arial"; ctx.textAlign = "center";
+                ctx.fillText("preview", this.size[0] / 2, top + h / 2 + 4); ctx.textAlign = "left";
+            }
+        };
+        this.size = [300, 200];
     });
 
     // --- Canvas ------------------------------------------------------------
@@ -360,6 +375,69 @@
     starterGraph();
     resize();
 
+    // --- In-node video player (Preview Save) -------------------------------
+    // LiteGraph nodes are canvas-drawn, so the <video> is a real DOM element
+    // floated over the node's preview area, clipped to the canvas (a container
+    // with overflow:hidden) and kept aligned with pan/zoom by a rAF loop. One
+    // <video> per Preview Save node that has a result.
+    var VIDEO_TOP = 26, VIDEO_PAD = 8;
+    var videoLayer = document.createElement("div");
+    videoLayer.style.cssText = "position:fixed;overflow:hidden;z-index:25;pointer-events:none;";
+    document.body.appendChild(videoLayer);
+    var videoEls = {};   // nodeId -> <video>
+    var videoRAF = null;
+    function positionVideoLayer() {
+        var r = canvasEl.getBoundingClientRect();
+        videoLayer.style.left = r.left + "px"; videoLayer.style.top = r.top + "px";
+        videoLayer.style.width = r.width + "px"; videoLayer.style.height = r.height + "px";
+    }
+    function placeVideo(id) {
+        var v = videoEls[id], node = graph.getNodeById(parseInt(id, 10));
+        if (!v) return;
+        if (!node || node.flags.collapsed) { v.style.display = "none"; return; }
+        var s = lgcanvas.ds.scale;
+        var c = lgcanvas.ds.convertOffsetToCanvas([node.pos[0] + VIDEO_PAD, node.pos[1] + VIDEO_TOP]);
+        v.style.display = "block";
+        v.style.left = c[0] + "px"; v.style.top = c[1] + "px";
+        v.style.width = ((node.size[0] - VIDEO_PAD * 2) * s) + "px";
+        v.style.height = ((node.size[1] - VIDEO_TOP - VIDEO_PAD) * s) + "px";
+    }
+    function videoLoop() {
+        positionVideoLayer();
+        var any = false;
+        for (var id in videoEls) { any = true; placeVideo(id); }
+        videoRAF = any ? requestAnimationFrame(videoLoop) : null;
+    }
+    function setNodeVideo(nodeId, url) {
+        var v = videoEls[nodeId];
+        if (!v) {
+            v = document.createElement("video");
+            v.controls = true; v.preload = "metadata";
+            v.style.cssText = "position:absolute;background:#000;border-radius:4px;object-fit:contain;pointer-events:auto;";
+            videoLayer.appendChild(v);
+            videoEls[nodeId] = v;
+        }
+        v.src = url;
+        var node = graph.getNodeById(parseInt(nodeId, 10));
+        if (node) node._hasVideo = true;
+        placeVideo(nodeId);
+        if (videoRAF == null) videoLoop();
+        lgcanvas.setDirty(true, true);
+    }
+    function clearVideoOverlays() {
+        for (var id in videoEls) {
+            try { videoEls[id].pause(); } catch (e) { }
+            videoEls[id].remove();
+            var n = graph.getNodeById(parseInt(id, 10)); if (n) n._hasVideo = false;
+            delete videoEls[id];
+        }
+    }
+    // Drop a node's overlay when the node itself is deleted.
+    graph.onNodeRemoved = function (node) {
+        if (videoEls[node.id]) { videoEls[node.id].remove(); delete videoEls[node.id]; }
+    };
+    window.addEventListener("resize", positionVideoLayer);
+
     // --- Run ---------------------------------------------------------------
     var statusEl = document.getElementById("status");
     var runBtn = document.getElementById("run-btn");
@@ -383,6 +461,9 @@
             case "node-done":
                 nodeStatus[ev.node] = "done";
                 delete nodeProgress[ev.node];
+                break;
+            case "node-result":   // a Preview Save node received a clip -> play it in the node
+                setNodeVideo(ev.node, "/Studio/Preview?path=" + encodeURIComponent(ev.video));
                 break;
             case "node-error":
                 nodeStatus[ev.node] = "error";
@@ -479,6 +560,7 @@
             return;
         }
         nodeStatus = {}; nodeProgress = {};
+        clearVideoOverlays();
         resultLog.textContent = "";
         statusEl.textContent = "Running… (video generation can take minutes)";
         runBtn.disabled = true;
@@ -509,7 +591,7 @@
         }
     });
     document.getElementById("reset-btn").addEventListener("click", function () {
-        nodeStatus = {}; nodeProgress = {}; starterGraph(); resize(); statusEl.textContent = "";
+        nodeStatus = {}; nodeProgress = {}; clearVideoOverlays(); starterGraph(); resize(); statusEl.textContent = "";
     });
 
     // --- Save / load graphs ------------------------------------------------

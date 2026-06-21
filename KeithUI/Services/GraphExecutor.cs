@@ -97,7 +97,11 @@ public sealed class GraphExecutor
                     {
                         var produced = await ExecuteNode(n, inputs, emit, Log, ct);
                         if (produced is not null) outputs[n.id] = produced;
-                        if (n.type == "Preview Save/save" && inputs.TryGetValue("video", out var fv)) finalVideo = fv;
+                        if (n.type == "Preview Save/save" && inputs.TryGetValue("video", out var fv))
+                        {
+                            finalVideo = fv;
+                            await emit(new { type = "node-result", node = n.id, video = fv });  // play it in the node
+                        }
                         await emit(new { type = "node-done", node = n.id });
                     }
                     catch (Exception ex)
