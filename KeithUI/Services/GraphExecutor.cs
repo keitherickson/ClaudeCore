@@ -201,34 +201,31 @@ public sealed class GraphExecutor
                 await log($"Extend: stitched {segments} segments -> {stitchName}");
                 return stitchPath;
             }
-            case "keithui/upscale":
+            case "keithui/upscale_ai":
             {
-                if (vidIn is null) { await log("Upscale: no video input — skipped"); return null; }
-                var engine = Str(0, "ai");
-                if (engine == "ai")
-                {
-                    var th = int.TryParse(Str(1, "1080"), out var v) ? v : 1080;
-                    var dims = VideoProbe.TryGetDimensions(vidIn);
-                    int tw = dims is { } d ? (int)Math.Round((double)d.Width / d.Height * th) : th * 16 / 9;
-                    tw = Even(Math.Max(2, tw)); th = Even(th);
-                    var name = $"studio_{Guid.NewGuid():N}{Path.GetExtension(vidIn)}";
-                    File.Copy(vidIn, Path.Combine(_aiUpscale.InputDirectory, name), true);
-                    var r = await _aiUpscale.UpscaleAsync(name, tw, th, ct);
-                    await log($"Upscale [AI]: -> {r.Width}x{r.Height} {Path.GetFileName(r.SavedPath)}");
-                    return r.SavedPath;
-                }
-                else
-                {
-                    var factor = int.TryParse(Str(2, "2"), out var f) && f is 2 or 3 or 4 ? f : 2;
-                    var input = await _speed.EnsureH264Async(vidIn, ct);
-                    var srcH = VideoProbe.TryGetHeight(input) ?? 1080;
-                    var r = await _maxine.UpscaleAsync(input, "SuperRes", srcH * factor, 1, 0f, ct);
-                    await _speed.RestoreAudioAsync(r.SavedPath, vidIn, ct);
-                    if (!string.Equals(input, vidIn, StringComparison.OrdinalIgnoreCase))
-                        try { File.Delete(input); } catch { /* best effort */ }
-                    await log($"Upscale [Maxine {factor}x]: {Path.GetFileName(r.SavedPath)}");
-                    return r.SavedPath;
-                }
+                if (vidIn is null) { await log("Upscale (AI): no video input — skipped"); return null; }
+                var th = int.TryParse(Str(0, "1080"), out var v) ? v : 1080;
+                var dims = VideoProbe.TryGetDimensions(vidIn);
+                int tw = dims is { } d ? (int)Math.Round((double)d.Width / d.Height * th) : th * 16 / 9;
+                tw = Even(Math.Max(2, tw)); th = Even(th);
+                var name = $"studio_{Guid.NewGuid():N}{Path.GetExtension(vidIn)}";
+                File.Copy(vidIn, Path.Combine(_aiUpscale.InputDirectory, name), true);
+                var r = await _aiUpscale.UpscaleAsync(name, tw, th, ct);
+                await log($"Upscale [AI]: -> {r.Width}x{r.Height} {Path.GetFileName(r.SavedPath)}");
+                return r.SavedPath;
+            }
+            case "keithui/upscale_maxine":
+            {
+                if (vidIn is null) { await log("Upscale (MAXINE): no video input — skipped"); return null; }
+                var factor = int.TryParse(Str(0, "2"), out var f) && f is 2 or 3 or 4 ? f : 2;
+                var input = await _speed.EnsureH264Async(vidIn, ct);
+                var srcH = VideoProbe.TryGetHeight(input) ?? 1080;
+                var r = await _maxine.UpscaleAsync(input, "SuperRes", srcH * factor, 1, 0f, ct);
+                await _speed.RestoreAudioAsync(r.SavedPath, vidIn, ct);
+                if (!string.Equals(input, vidIn, StringComparison.OrdinalIgnoreCase))
+                    try { File.Delete(input); } catch { /* best effort */ }
+                await log($"Upscale [Maxine {factor}x]: {Path.GetFileName(r.SavedPath)}");
+                return r.SavedPath;
             }
             case "keithui/speed":
             {

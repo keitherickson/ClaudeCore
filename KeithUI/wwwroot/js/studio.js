@@ -218,13 +218,20 @@
     });
 
     // --- Post-processing ---------------------------------------------------
-    define("keithui/upscale", "Upscale", "#534", function () {
+    // AI upscale (ComfyUI / Real-ESRGAN) — any target resolution. The default.
+    define("keithui/upscale_ai", "Upscale (AI)", "#534", function () {
         this.addInput("video", LiteGraph.VIDEO);
         this.addOutput("video", LiteGraph.VIDEO);
-        this.addWidget("combo", "engine", "ai", null, { values: ["ai", "maxine"] });
         this.addWidget("combo", "targetHeight", "1080", null, { values: ["720", "1080", "1440", "2160"] });
-        this.addWidget("combo", "maxineFactor", "2", null, { values: ["2", "3", "4"] });
-        this.size = [240, 110];
+        this.size = [240, 80];
+    });
+
+    // Maxine upscale — fast, integer 2×/3×/4× only (the SDK rejects other ratios).
+    define("keithui/upscale_maxine", "Upscale (MAXINE)", "#534", function () {
+        this.addInput("video", LiteGraph.VIDEO);
+        this.addOutput("video", LiteGraph.VIDEO);
+        this.addWidget("combo", "factor", "2", null, { values: ["2", "3", "4"] });
+        this.size = [240, 80];
     });
 
     define("keithui/speed", "Speed Up", "#454", function () {
@@ -284,7 +291,7 @@
     function starterGraph() {
         graph.clear();
         var gen = LiteGraph.createNode("keithui/generate"); gen.pos = [120, 120]; graph.add(gen);
-        var up = LiteGraph.createNode("keithui/upscale");  up.pos = [460, 120]; graph.add(up);
+        var up = LiteGraph.createNode("keithui/upscale_ai");  up.pos = [460, 120]; graph.add(up);
         var save = LiteGraph.createNode("keithui/save");    save.pos = [740, 140]; graph.add(save);
         gen.connect(0, up, 0);
         up.connect(0, save, 0);
@@ -344,7 +351,8 @@
     // useful (the executor would skip them, or there'd be nothing to save).
     var REQUIRED_INPUT = {
         "keithui/save": { slot: "video", label: "Save / Preview" },
-        "keithui/upscale": { slot: "video", label: "Upscale" },
+        "keithui/upscale_ai": { slot: "video", label: "Upscale (AI)" },
+        "keithui/upscale_maxine": { slot: "video", label: "Upscale (MAXINE)" },
         "keithui/speed": { slot: "video", label: "Speed Up" },
     };
     function isLinked(n, slotName) {
