@@ -308,7 +308,7 @@ Open options (not yet chosen): (a) load as a **diffusion_model via UNETLoader** 
 
 The `/Admin` model switch's two "fast/quality" video models (NVFP4 LTX-2.3, Wan 2.2) and the AI upscale engine all run on **one ComfyUI server** (`127.0.0.1:8188`), launched on demand by the app (`tools/run-comfyui.ps1`; started by the model switch or the AI-upscale service, **not** at logon). §7 is the R&D log; this is the reproducible build.
 
-**Environment** (root `C:\ComfyUI`):
+**Environment** (root `C:\ComfyUI`) — **one command:** `powershell -ExecutionPolicy Bypass -File tools\install-comfyui.ps1` (add `-WithModels` to also pull the weights). It's idempotent and does steps 1–5 below: venv → cu130 nightly torch → ComfyUI `5ef0092` → LTX node `4f45fd6` + kornia patch → pinned deps, then a `sm_120` verify. The manual equivalent:
 1. **Python 3.11.9** + venv: `py -3.11 -m venv C:\ComfyUI\venv`.
 2. **PyTorch cu130 nightly** (make-or-break for native FP4 / sm_120): `C:\ComfyUI\venv\Scripts\python -m pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130`. Verify with `C:\ComfyUI\verify_gpu.py` (expect `torch.version.cuda` 13.0, sm_120 in `get_arch_list()`).
 3. **ComfyUI**: clone https://github.com/comfyanonymous/ComfyUI → `C:\ComfyUI\ComfyUI`; install deps from a **torch-stripped** `requirements.txt` (`C:\ComfyUI\req-comfyui-notorch.txt`) so the cu130 nightly isn't downgraded.
