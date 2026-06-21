@@ -53,6 +53,30 @@ public class StudioController : Controller
         return PhysicalFile(full, "video/mp4", enableRangeProcessing: true);
     }
 
+    /// <summary>Stages an uploaded image (for the Load Image node) and returns its path.</summary>
+    [HttpPost]
+    [RequestSizeLimit(104_857_600)] // 100 MB
+    public async Task<IActionResult> Upload(IFormFile? image, CancellationToken ct)
+    {
+        if (image is not { Length: > 0 })
+            return BadRequest(new { ok = false, error = "No image." });
+        var path = await _ltx.StageImageAsync(image, ct);
+        return Json(new { ok = true, path, name = Path.GetFileName(path) });
+    }
+
+    /// <summary>Serves a staged image for the node thumbnail (guarded to the input tree).</summary>
+    [HttpGet]
+    public IActionResult Image(string path)
+    {
+        var root = Path.GetFullPath(_ltx.InputDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(path);
+        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(full))
+            return NotFound();
+        var ext = Path.GetExtension(full).ToLowerInvariant();
+        var mime = ext == ".png" ? "image/png" : ext is ".jpg" or ".jpeg" ? "image/jpeg" : ext == ".webp" ? "image/webp" : "application/octet-stream";
+        return PhysicalFile(full, mime);
+    }
+
     [HttpGet]
     public IActionResult Error() => Content("KeithUI error.");
 }

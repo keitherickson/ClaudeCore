@@ -20,9 +20,46 @@
 
     // --- Sources -----------------------------------------------------------
     define("keithui/load_image", "Load Image", "#355", function () {
+        var self = this;
         this.addOutput("image", LiteGraph.IMAGE);
-        this.addWidget("text", "file", "", null, { property: "file" });
-        this.size = [220, 60];
+        var fileW = this.addWidget("text", "file", "", null, { property: "file" });
+        this.addWidget("button", "📁 upload", null, function () {
+            var inp = document.createElement("input");
+            inp.type = "file"; inp.accept = "image/*";
+            inp.onchange = async function () {
+                if (!inp.files || !inp.files[0]) return;
+                self.title = "Load Image — uploading…"; self.setDirtyCanvas(true, true);
+                try {
+                    var fd = new FormData(); fd.append("image", inp.files[0]);
+                    var d = await (await fetch("/Studio/Upload", { method: "POST", body: fd })).json();
+                    if (d.ok) {
+                        fileW.value = d.path;
+                        self.title = "Load Image — " + d.name;
+                        self._img = new Image();
+                        self._img.onload = function () { self.setDirtyCanvas(true, true); };
+                        self._img.src = "/Studio/Image?path=" + encodeURIComponent(d.path);
+                    } else { self.title = "Load Image — failed"; }
+                } catch (e) { self.title = "Load Image — error"; }
+                self.setDirtyCanvas(true, true);
+            };
+            inp.click();
+        });
+        // Re-attach the thumbnail after a graph reload (value persisted).
+        if (fileW.value) {
+            this._img = new Image();
+            this._img.onload = function () { self.setDirtyCanvas(true, true); };
+            this._img.src = "/Studio/Image?path=" + encodeURIComponent(fileW.value);
+        }
+        this.onDrawBackground = function (ctx) {
+            if (this.flags.collapsed || !this._img || !this._img.width) return;
+            var pad = 8, top = 74; // below the two widgets
+            var w = this.size[0] - pad * 2;
+            var h = w * (this._img.height / this._img.width);
+            var maxH = this.size[1] - top - pad;
+            if (h > maxH) { h = maxH; w = h * (this._img.width / this._img.height); }
+            ctx.drawImage(this._img, (this.size[0] - w) / 2, top, w, h);
+        };
+        this.size = [220, 210];
     });
 
     define("keithui/sound", "Generate Sound", "#553", function () {
@@ -72,6 +109,7 @@
     var canvasEl = document.getElementById("graph");
     var graph = new LGraph();
     var lgcanvas = new LGraphCanvas(canvasEl, graph);
+    window.lgraph = graph; window.lgcanvas = lgcanvas;   // debug/automation hook
 
     function resize() {
         canvasEl.width = canvasEl.clientWidth;
