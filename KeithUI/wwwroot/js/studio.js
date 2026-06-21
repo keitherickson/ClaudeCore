@@ -115,20 +115,31 @@
     var lgcanvas = new LGraphCanvas(canvasEl, graph);
     window.lgraph = graph; window.lgcanvas = lgcanvas;   // debug/automation hook
 
-    // Per-node run status -> a colored outline (running / done / error), ComfyUI-style.
+    // Per-node run status -> a colored outline + on-node progress bar (ComfyUI-style).
     var nodeStatus = {};
+    var nodeProgress = {};   // nodeId -> 0..100 (undefined = indeterminate while running)
     lgcanvas.onDrawForeground = function (ctx) {
         var th = LiteGraph.NODE_TITLE_HEIGHT;
         for (var id in nodeStatus) {
             var node = graph.getNodeById(parseInt(id, 10));
             if (!node) continue;
             var st = nodeStatus[id];
+            // status outline
             ctx.lineWidth = 3;
             ctx.strokeStyle = st === "running" ? "#ffd24a" : st === "done" ? "#4caf76" : "#e05555";
             var x = node.pos[0] - 3, y = node.pos[1] - th - 3, w = node.size[0] + 6, h = node.size[1] + th + 6;
             ctx.beginPath();
             if (ctx.roundRect) ctx.roundRect(x, y, w, h, 8); else ctx.rect(x, y, w, h);
             ctx.stroke();
+            // on-node progress bar (bottom edge of the body)
+            if (st === "running") {
+                var bx = node.pos[0], by = node.pos[1] + node.size[1] - 4, bw = node.size[0];
+                ctx.fillStyle = "rgba(0,0,0,0.45)";
+                ctx.fillRect(bx, by, bw, 4);
+                var pct = nodeProgress[id];
+                if (pct != null) { ctx.fillStyle = "#4caf76"; ctx.fillRect(bx, by, bw * Math.max(0, Math.min(100, pct)) / 100, 4); }
+                else { ctx.fillStyle = "#ffd24a"; ctx.fillRect(bx, by, bw, 4); }   // indeterminate
+            }
         }
     };
 
@@ -164,13 +175,16 @@
         switch (ev.type) {
             case "node-start":
                 nodeStatus[ev.node] = "running";
+                delete nodeProgress[ev.node];
                 statusEl.textContent = "Running node " + ev.node + "…";
                 break;
             case "node-progress":
+                nodeProgress[ev.node] = ev.pct;
                 statusEl.textContent = "Generating… " + (ev.pct || 0) + "%";
                 break;
             case "node-done":
                 nodeStatus[ev.node] = "done";
+                delete nodeProgress[ev.node];
                 break;
             case "node-error":
                 nodeStatus[ev.node] = "error";
@@ -195,8 +209,30 @@
         lgcanvas.setDirty(true, true);
     }
 
+    // Client-side checks before a (possibly minutes-long) run.
+    function validateGraph() {
+        var issues = [];
+        graph._nodes.forEach(function (n) {
+            if (n.type === "keithui/generate") {
+                var model = n.widgets[0] && n.widgets[0].value;
+                var imageLinked = n.inputs && n.inputs[0] && n.inputs[0].link != null;
+                if (model === "wan2.2" && !imageLinked)
+                    issues.push({ node: n.id, msg: "Wan 2.2 is image-to-video — connect a Load Image to the Generate node (or pick BF16/NVFP4)." });
+            }
+        });
+        return issues;
+    }
+
     runBtn.addEventListener("click", async function () {
-        nodeStatus = {};
+        var issues = validateGraph();
+        if (issues.length) {
+            nodeStatus = {}; nodeProgress = {};
+            issues.forEach(function (it) { nodeStatus[it.node] = "error"; });
+            statusEl.textContent = "⚠ " + issues[0].msg;
+            lgcanvas.setDirty(true, true);
+            return;
+        }
+        nodeStatus = {}; nodeProgress = {};
         resultLog.textContent = "";
         statusEl.textContent = "Running… (video generation can take minutes)";
         runBtn.disabled = true;
@@ -227,6 +263,6 @@
         }
     });
     document.getElementById("reset-btn").addEventListener("click", function () {
-        nodeStatus = {}; starterGraph(); resize(); statusEl.textContent = "";
+        nodeStatus = {}; nodeProgress = {}; starterGraph(); resize(); statusEl.textContent = "";
     });
 })();
