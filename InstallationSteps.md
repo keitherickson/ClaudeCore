@@ -12,6 +12,8 @@ Status legend: ✅ done · ⏳ pending a manual step · ⏸️ deferred · 🔁 
 
 Every external thing that has to be downloaded, in one place.
 
+**Core app & tooling**
+
 | What | Link | Used by | Status |
 |---|---|---|---|
 | .NET 10 SDK | https://dotnet.microsoft.com/download/dotnet/10.0 | the web app | ✅ present |
@@ -19,13 +21,46 @@ Every external thing that has to be downloaded, in one place.
 | GitHub CLI (`gh`) | https://cli.github.com/ | push to GitHub | ✅ installed |
 | Claude Code VS Code extension | https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code | editor | ✅ installed |
 | NVIDIA GPU driver (≥ 521.98) | https://www.nvidia.com/download/index.aspx | GPU | ✅ 610.47 |
-| LTX Desktop (bundled engine + weights) | https://ltx.io/ltx-desktop · repo: https://github.com/Lightricks/LTX-Desktop | LTX generation | ✅ installed |
-| LTX-2.3 model weights | https://huggingface.co/Lightricks/LTX-2.3 | LTX generation | ✅ downloaded |
-| Gemma text encoder weights | https://huggingface.co/Lightricks/gemma-3-12b-it-qat-q4_0-unquantized | LTX generation | ✅ downloaded |
-| ffmpeg (Gyan full build) | `winget install Gyan.FFmpeg` · https://www.gyan.dev/ffmpeg/builds/ | "play faster" re-time | ✅ installed (8.1.1) |
-| NVIDIA Maxine Video Effects SDK redistributable | https://www.nvidia.com/broadcast-sdk-resources | upscaling | ✅ installed |
-| Maxine VFX SDK source (samples/exe) | https://github.com/NVIDIA-Maxine/Maxine-VFX-SDK | upscaling | ✅ cloned |
+| ffmpeg (Gyan full build) | `winget install Gyan.FFmpeg` · https://www.gyan.dev/ffmpeg/builds/ | re-time / H.264 normalize | ✅ installed (8.1.1) |
+| **Python 3.11** (3.11.9) | https://www.python.org/downloads/release/python-3119/ | ComfyUI + audio venvs | ✅ installed |
 | VS 2022 C++ Build Tools (fallback) | https://visualstudio.microsoft.com/downloads/ | optional recompile | ◻️ optional |
+
+**LTX-2.3 (default video model, via LTX Desktop's engine)** — see §2
+
+| What | Link | Goes to | Status |
+|---|---|---|---|
+| LTX Desktop (bundled engine + weights) | https://ltx.io/ltx-desktop · https://github.com/Lightricks/LTX-Desktop | (its own install dir) | ✅ installed |
+| LTX-2.3 model weights | https://huggingface.co/Lightricks/LTX-2.3 | (LTX Desktop) | ✅ downloaded |
+| Gemma text encoder weights | https://huggingface.co/Lightricks/gemma-3-12b-it-qat-q4_0-unquantized | (LTX Desktop) | ✅ downloaded |
+
+**NVIDIA Maxine upscaling** — see §4
+
+| What | Link | Status |
+|---|---|---|
+| Maxine Video Effects SDK redistributable | https://www.nvidia.com/broadcast-sdk-resources | ✅ installed |
+| Maxine VFX SDK source (samples/exe) | https://github.com/NVIDIA-Maxine/Maxine-VFX-SDK | ✅ cloned |
+
+**ComfyUI stack — NVFP4 + Wan 2.2 video backends & AI upscale** — see §8. Install root `C:\ComfyUI`.
+
+| What | Link | Goes to | Status |
+|---|---|---|---|
+| ComfyUI | https://github.com/comfyanonymous/ComfyUI | `C:\ComfyUI\ComfyUI` | ✅ cloned |
+| PyTorch cu130 nightly | `pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130` | `C:\ComfyUI\venv` | ✅ 2.14.0.dev+cu130 |
+| ComfyUI-LTXVideo nodes | https://github.com/Lightricks/ComfyUI-LTXVideo | `ComfyUI\custom_nodes\` | ✅ cloned (+kornia patch) |
+| SageAttention / triton-windows | `pip install sageattention triton-windows` | venv | ✅ installed |
+| **NVFP4 transformer** `ltx-2.3-22b-dev-nvfp4.safetensors` (21.7 GB) | https://huggingface.co/Lightricks/LTX-2.3-nvfp4 | `models\checkpoints\` | ✅ |
+| **NVFP4 distilled LoRA** `ltx-2.3-22b-distilled-lora-384-1.1.safetensors` (7 GB) | https://huggingface.co/Lightricks/LTX-2.3 | `models\loras\` | ✅ |
+| **Gemma fp8 text encoder** `gemma_3_12B_it_fp8_scaled.safetensors` | https://huggingface.co/Comfy-Org/ltx-2 | `models\text_encoders\` | ✅ |
+| **Wan 2.2 i2v** (high+low fp8 experts, umt5 fp8, wan_2.1_vae, lightx2v 4-step LoRAs) | https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged | `models\diffusion_models\` · `text_encoders\` · `vae\` · `loras\` | ✅ |
+| **Real-ESRGAN x4** `RealESRGAN_x4plus.pth` (64 MB) | https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth | `models\upscale_models\` | ✅ |
+
+**Self-hosted AI sound — Stable Audio Open** — see §9. Venv `C:\ClaudeCore\audio-venv`.
+
+| What | Link | Status |
+|---|---|---|
+| PyTorch cu128 + diffusers/torchsde/fastapi (pinned) | `pip install -r tools\audio-requirements.txt` (torch from https://download.pytorch.org/whl/cu128) | ✅ frozen |
+| Stable Audio Open 1.0 weights (**gated** — accept license) | https://huggingface.co/stabilityai/stable-audio-open-1.0 | ✅ cached (~9.7 GB) |
+| Hugging Face CLI (`hf`) — for the gated download | `pip install huggingface_hub` | ✅ |
 
 Deferred items' downloads are listed in section 6.
 
@@ -211,7 +246,7 @@ A local operations page (nav link **Admin**) showing the health of each moving p
 
 ---
 
-## 7. Feature (in progress): LTX-2 NVFP4 via ComfyUI ⏳
+## 7. R&D log: LTX-2 NVFP4 via ComfyUI ✅ (outcome shipped — see §8)
 
 Goal: run LTX-2 in **NVFP4** to exploit the 5090's native FP4 tensor cores (~2–3× over the current BF16 path) for video generation. Current `ltx-2.3-22b-distilled.safetensors` is **BF16** (verified from the safetensors header: 5,657 BF16 + 290 F32 tensors), and LTX Desktop's bundled engine has no NVFP4 loader — so this path means a **separate ComfyUI install** with the NVFP4 model, validated standalone *before* wiring ClaudeCore to it.
 
@@ -266,6 +301,53 @@ Open options (not yet chosen): (a) load as a **diffusion_model via UNETLoader** 
 **BETTER SOURCE found 2026-06-19 — official `Lightricks/LTX-2.3-nvfp4`** (`ltx-2.3-22b-dev-nvfp4.safetensors`, 21.7 GB, ungated, Mar-2026). Supersedes the 19B: newest 2.3 model **with audio-video**. Validated WORKING via the same pattern (UNETLoader + CheckpointLoaderSimple-for-VAE + `LTXAVTextEncoderLoader` fp8 gemma) **plus the official distilled LoRA** `ltx-2.3-22b-distilled-lora-384-1.1.safetensors` (7 GB, `LoraLoaderModelOnly`, 8 steps cfg 1.0). Generates clean 1280×704/97f clips, FP4 engaged (15.4 GB resident). **Speed caveat — NOT yet the projected ~11 s: warm ~45–51 s.** Diagnosed: (1) 97→25 frames barely changed time (51→45 s) ⇒ VAE decode is *not* the bottleneck; (2) ~45 s is fixed per-run cost — ComfyUI's **DynamicVRAM re-stages the 16.7 GB transformer + re-applies 1660 distilled-LoRA patches every run** (`Model LTXAV ... 16744MB Staged. 1660 patches attached`). Swapping the unquantized→fp8 gemma did NOT help (so gemma wasn't it). `--highvram` to force-resident **crashed/OOM'd** because the CheckpointLoaderSimple-for-VAE trick also loads the full dequantized transformer (fine when CPU-offloaded, fatal when forced resident). **Open optimization to hit ~11 s:** (i) source the VAE WITHOUT loading the full checkpoint (standalone LTX VAE / extract VAE keys) so the bloated model never loads, then keep the FP4 transformer resident; (ii) bake the distilled LoRA into the weights once instead of 1660 patches/run. Until then FP4-2.3 *works* at ~50 s (FP4 sampling itself is fast; the tax is staging/patching).
 
 **Earlier attempt (community distilled file) — option (a): it CLEARS the #11864 OOM.** Loaded the NVFP4 transformer via `UNETLoader` (`weight_dtype=default`) + pulled the VAE from the same all-in-one file via `VAELoader` (both exposed from `checkpoints\` through a second `extra_model_paths.yaml` entry — no copy/download). The run got **past model-load and text-encode all the way to the sampler** (no OOM) before hitting a *different* error: `mat1 and mat2 shapes cannot be multiplied (11440x4096 and 2048x4096)` in `SamplerCustomAdvanced`. Root cause: the 19B example points `LTXVGemmaCLIPModelLoader.ltxv_path` at the **BF16 19B checkpoint** (`ltx-2-19b-distilled.safetensors`) — which holds the gemma→cross-attn **text-projection/connector** weights — whereas I pointed it at the NVFP4 file, whose connector emits 4096-dim where the 19B transformer wants 2048. So the loader/OOM blocker is solved; the remaining gap is the **text-connector config**, which likely needs the official 19B workflow's setup (and possibly the BF16 19B checkpoint, ~43 GB, just for the connector). At that point it's no longer "quick/no-download." Recommended pivot: build the C# /Admin switch against the two working models (BF16-2.3, FP8-2.3) and slot FP4 in once the connector is sorted or #11864 is fixed upstream.
+
+---
+
+## 8. ComfyUI video backends + AI upscale ✅ (NVFP4, Wan 2.2, Real-ESRGAN)
+
+The `/Admin` model switch's two "fast/quality" video models (NVFP4 LTX-2.3, Wan 2.2) and the AI upscale engine all run on **one ComfyUI server** (`127.0.0.1:8188`), launched on demand by the app (`tools/run-comfyui.ps1`; started by the model switch or the AI-upscale service, **not** at logon). §7 is the R&D log; this is the reproducible build.
+
+**Environment** (root `C:\ComfyUI`):
+1. **Python 3.11.9** + venv: `py -3.11 -m venv C:\ComfyUI\venv`.
+2. **PyTorch cu130 nightly** (make-or-break for native FP4 / sm_120): `C:\ComfyUI\venv\Scripts\python -m pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130`. Verify with `C:\ComfyUI\verify_gpu.py` (expect `torch.version.cuda` 13.0, sm_120 in `get_arch_list()`).
+3. **ComfyUI**: clone https://github.com/comfyanonymous/ComfyUI → `C:\ComfyUI\ComfyUI`; install deps from a **torch-stripped** `requirements.txt` (`C:\ComfyUI\req-comfyui-notorch.txt`) so the cu130 nightly isn't downgraded.
+4. **LTX nodes**: clone https://github.com/Lightricks/ComfyUI-LTXVideo → `ComfyUI\custom_nodes\`. ⚠️ Re-apply the kornia patch: in `custom_nodes\ComfyUI-LTXVideo\pyramid_blending.py` change the `pad` import to `from torch.nn.functional import pad` (kornia 0.8.3 dropped the re-export).
+5. **SageAttention** + **triton-windows** (`pip install sageattention triton-windows`).
+
+**Pinned state** (so a rebuild is a replay, not a re-debug): the venv is frozen to [`tools/comfyui-requirements.txt`](tools/comfyui-requirements.txt), which also records the exact cu130-nightly torch build and the **ComfyUI `5ef0092`** / **LTX-node `4f45fd6`** commits to check out for graph/template stability. ⚠️ The dated nightly torch wheel may be purged from the index over time — the file header has the recreate + fallback steps.
+
+**Model files** — **one command:** `powershell -ExecutionPolicy Bypass -File tools\download-comfyui-models.ps1` (idempotent; pulls everything below into the right `models\` folders; all ungated, no HF login). Sources, for reference (downloads use `HF_HUB_DISABLE_XET=1` — the xet backend stalls here):
+
+- **NVFP4 "fast" (text-to-video)** → matches the `ComfyUI` config section:
+  - `ltx-2.3-22b-dev-nvfp4.safetensors` ([Lightricks/LTX-2.3-nvfp4](https://huggingface.co/Lightricks/LTX-2.3-nvfp4)) → `models\checkpoints\`
+  - `ltx-2.3-22b-distilled-lora-384-1.1.safetensors` ([Lightricks/LTX-2.3](https://huggingface.co/Lightricks/LTX-2.3)) → `models\loras\`
+  - `gemma_3_12B_it_fp8_scaled.safetensors` ([Comfy-Org/ltx-2](https://huggingface.co/Comfy-Org/ltx-2)) → `models\text_encoders\`
+- **Wan 2.2 "quality" (image-to-video)** → matches the `Wan` config section. All from [Comfy-Org/Wan_2.2_ComfyUI_Repackaged](https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged) (`split_files/…`):
+  - `wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors` + `…_low_noise…` → `models\diffusion_models\`
+  - `umt5_xxl_fp8_e4m3fn_scaled.safetensors` → `models\text_encoders\`
+  - `wan_2.1_vae.safetensors` → `models\vae\`
+  - `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors` + `…_low_noise…` → `models\loras\` (the 4-step LoRA is what makes Wan ~70-100 s instead of ~9 min)
+- **AI upscale** → matches the `ComfyUiUpscale` config section:
+  - `RealESRGAN_x4plus.pth` (https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth) → `models\upscale_models\`
+
+**Validation scripts** (headless REST drivers): `C:\ComfyUI\run_val_nvfp4_23.py` (NVFP4), `run_val_wan22_i2v.py` (Wan), `run_val_upscale.py` (upscale).
+
+---
+
+## 9. Self-hosted AI sound — Stable Audio Open ✅
+
+Generate a sound effect from a text prompt on the local GPU for audio-to-video (no API key/cost). Local Python server `tools/audio_server.py` (FastAPI + diffusers `StableAudioPipeline`) on `127.0.0.1:8770`, launched by `tools/run-audio-server.ps1`; started on demand from `/Admin` (not at logon). See §2's Generate flow for how the clip is used.
+
+**Environment** (venv `C:\ClaudeCore\audio-venv`):
+1. `py -3.11 -m venv C:\ClaudeCore\audio-venv`
+2. `C:\ClaudeCore\audio-venv\Scripts\python -m pip install -r tools\audio-requirements.txt` — pinned set incl. **torch 2.11.0+cu128** (via `--extra-index-url https://download.pytorch.org/whl/cu128` — the Blackwell wheel isn't on PyPI), diffusers, **torchsde** (the Stable Audio scheduler needs it), soundfile, fastapi, uvicorn.
+
+**Model** — `stabilityai/stable-audio-open-1.0` (the full diffusers layout; the `-small` checkpoint won't load in `StableAudioPipeline`):
+- The weights are **HF-gated** — accept the license at https://huggingface.co/stabilityai/stable-audio-open-1.0, then `hf auth login` for the download.
+- `tools/run-audio-server.ps1` sets `HF_HUB_DISABLE_XET=1` (the xet fast-transfer backend stalls mid-download here). Weights cache (~9.7 GB) under `C:\Users\keith\.cache\huggingface`.
+
+GPU pin: `LocalAudio:GpuIndex` (default `1`); set to `0` on a single-GPU box (see §5b / the per-GPU notes).
 
 ---
 
