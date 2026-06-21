@@ -302,11 +302,13 @@
 
     function starterGraph() {
         graph.clear();
-        var gen = LiteGraph.createNode("keithui/generate"); gen.pos = [24, 70]; graph.add(gen);
-        var up = LiteGraph.createNode("keithui/upscale_ai");  up.pos = [391, 70]; graph.add(up);
-        var save = LiteGraph.createNode("keithui/save");    save.pos = [678, 70]; graph.add(save);
-        gen.connect(0, up, 0);
-        up.connect(0, save, 0);
+        var img = LiteGraph.createNode("keithui/load_image"); img.pos = [30, 73]; graph.add(img);
+        var gen = LiteGraph.createNode("keithui/generate");   gen.pos = [298, 73]; graph.add(gen);
+        var up = LiteGraph.createNode("keithui/upscale_ai");  up.pos = [663, 74]; graph.add(up);
+        var save = LiteGraph.createNode("keithui/save");      save.pos = [943, 82]; graph.add(save);
+        img.connect(0, gen, 0);   // Load Image -> Generate (image input)
+        gen.connect(0, up, 0);    // Generate -> Upscale (AI)
+        up.connect(0, save, 0);   // Upscale -> Save
         graph.start();
     }
     starterGraph();
