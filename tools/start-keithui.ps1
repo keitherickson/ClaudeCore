@@ -6,9 +6,11 @@
 # startup task brings up -- so this script only needs to start the web app, not
 # the backends.
 #
-# Binds 127.0.0.2:80 (see KeithUI\appsettings.json -> Kestrel:Web) so it can sit
-# on port 80 next to KeithVision (127.0.0.1:80) without a conflict; the hosts
-# entry "127.0.0.2 www.keithui.com" makes http://www.keithui.com resolve here.
+# Binds 127.0.0.2:80 via ASPNETCORE_URLS (set below) so it can sit on port 80 next
+# to KeithVision (127.0.0.1:80) without a conflict; the hosts entry
+# "127.0.0.2 www.keithui.com" makes http://www.keithui.com resolve here. The
+# hosted instance deliberately does NOT bind 5099 -- that port is left free for
+# the dev preview (.claude/launch.json), so dev and hosted can run side by side.
 $ErrorActionPreference = "SilentlyContinue"
 
 $AppDir = "C:\ClaudeCore\KeithUI"
@@ -22,8 +24,10 @@ function Endpoint-Listening($address, $port) {
     [bool](Get-NetTCPConnection -State Listen -LocalAddress $address -LocalPort $port -ErrorAction SilentlyContinue)
 }
 
-# KeithUI web app (endpoints from appsettings.json -> Kestrel: 127.0.0.2:80 + 127.0.0.1:5099).
-if ((Test-Path $AppExe) -and -not (Endpoint-Listening "127.0.0.2" 80) -and -not (Endpoint-Listening "127.0.0.1" 5099)) {
+# KeithUI web app -> 127.0.0.2:80 (appsettings.json has no Kestrel:Endpoints, so
+# this env var is the binding). Start-Process inherits this process's environment.
+if ((Test-Path $AppExe) -and -not (Endpoint-Listening "127.0.0.2" 80)) {
+    $env:ASPNETCORE_URLS = "http://127.0.0.2:80"
     Start-Process -FilePath $AppExe -WindowStyle Hidden `
         -WorkingDirectory $AppDir `
         -RedirectStandardOutput (Join-Path $LogDir "keithui.out.log") `
