@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="KeithVision.Core/KeithVision.Core.csproj" />
+  <Project Path="KeithVision.csproj" />
+</Solution>

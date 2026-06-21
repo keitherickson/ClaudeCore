@@ -7,4 +7,17 @@
     <Version>4.0.0</Version>
   </PropertyGroup>
 
+  <!-- The service layer is its own project nested here; keep this web project's
+       default globs from also compiling/including it. -->
+  <ItemGroup>
+    <Compile Remove="KeithVision.Core\**" />
+    <Content Remove="KeithVision.Core\**" />
+    <None Remove="KeithVision.Core\**" />
+    <EmbeddedResource Remove="KeithVision.Core\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="KeithVision.Core\KeithVision.Core.csproj" />
+  </ItemGroup>
+
 </Project>

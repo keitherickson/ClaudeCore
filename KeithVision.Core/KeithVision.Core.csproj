@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>KeithVision</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    The service layer. References the ASP.NET shared framework so it can use the
+    Microsoft.Extensions.* stack (Options/Logging/Http/Hosting/DI) and IFormFile
+    (the upload-staging helpers) with the exact framework versions the web host
+    uses — no NuGet version juggling. The only web coupling is IFormFile; swapping
+    those staging methods to Stream would let this drop the FrameworkReference.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- The service files relied on the Web SDK's implicit global usings; the plain
+       SDK doesn't add these, so declare them here. -->
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+
+</Project>

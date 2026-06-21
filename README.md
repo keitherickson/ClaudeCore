@@ -64,6 +64,7 @@ The web app is a thin orchestrator. The heavy lifting runs in separate processes
 | Inference | External **LTX-2.3** server (reuses LTX Desktop's bundled Python + weights) |
 | Upscaling | External **NVIDIA Maxine Video Effects SDK** sample exe |
 | Re-time | External **ffmpeg** (Gyan build) |
+| Projects | **`KeithVision`** (web/UI host, `KeithVision.exe`) + **`KeithVision.Core`** (service-layer class library); `KeithVision.slnx` solution. `Program.cs` wires the services with one `AddKeithVisionServices(config)` call |
 
 ---
 
@@ -208,7 +209,7 @@ These run on the host and are configured by path:
 
 ```powershell
 # Dev: run from source (LTX server started separately for generation)
-dotnet run --project ClaudeCore.csproj
+dotnet run --project KeithVision.csproj
 #   → http://127.0.0.1:80  (and :5080)
 
 # Start the LTX inference server (per session)
