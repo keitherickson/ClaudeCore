@@ -193,7 +193,7 @@
         this.size = [220, 232];
     });
 
-    define("keithui/sound", "Generate Sound", "#553", function () {
+    define("Sound/sound", "Generate Sound", "#553", function () {
         this.addOutput("audio", LiteGraph.AUDIO);
         this.addWidget("text", "prompt", "distant thunder");
         this.addWidget("number", "seconds", 5, null, { min: 1, max: 30, step: 10, precision: 0 });

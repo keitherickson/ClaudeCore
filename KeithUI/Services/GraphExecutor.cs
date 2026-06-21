@@ -114,7 +114,7 @@ public sealed class GraphExecutor
                 await log($"Load Image: {(string.IsNullOrWhiteSpace(file) ? "(none)" : Path.GetFileName(file))}");
                 return string.IsNullOrWhiteSpace(file) || !File.Exists(file) ? null : file;
             }
-            case "keithui/sound":
+            case "Sound/sound":
             {
                 var staged = await _sound.GenerateAsync(Str(0), Num(1, 5), ct);
                 await log($"Generate Sound: '{Str(0)}' -> {Path.GetFileName(staged.Path)}");
