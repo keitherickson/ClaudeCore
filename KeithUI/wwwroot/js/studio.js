@@ -153,7 +153,7 @@
                     var d = await (await fetch("/Studio/Upload", { method: "POST", body: fd })).json();
                     if (d.ok) {
                         fileW.value = d.path;
-                        self.title = "Load Image — " + d.name;
+                        self.title = "Load Image";   // keep header clean; filename overflowed the node
                         self._img = new Image();
                         self._img.onload = function () { self.setDirtyCanvas(true, true); };
                         self._img.src = "/Studio/Image?path=" + encodeURIComponent(d.path);
