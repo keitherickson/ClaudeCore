@@ -1,19 +1,16 @@
 using System.Net.NetworkInformation;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using KeithVision.Models.Ltx;
 using KeithVision.Services;
 using Microsoft.Extensions.Options;
 
 namespace KeithUI.Services;
 
-public sealed record ExecResult(bool Ok, string? FinalVideo, IReadOnlyList<string> Log, string? Error);
-
 /// <summary>
 /// Executes a serialized LiteGraph graph by walking it and calling the reused
-/// KeithVision.Core services — generate / sound / upscale / speed. Each node produces
-/// a file (image/audio/video) that is handed to downstream nodes along the edges.
-/// Synchronous: blocks until the whole graph finishes (video gen takes minutes).
+/// KeithVision.Core services. Emits per-node events (start / progress / done / error)
+/// as it runs so the canvas can light up like ComfyUI; each node produces a file
+/// (image/audio/video) handed to downstream nodes along the edges.
 /// </summary>
 public sealed class GraphExecutor
 {
@@ -25,37 +22,34 @@ public sealed class GraphExecutor
     private readonly VideoSpeedService _speed;
     private readonly SoundGenService _sound;
     private readonly VideoDefaultsOptions _defaults;
-    private readonly VideoModelsOptions _models;
     private readonly ILogger<GraphExecutor> _log;
 
     public GraphExecutor(
         LtxVideoService ltx, ActiveModelStore activeModel, VideoBackendCoordinator coordinator,
         MaxineUpscaleService maxine, ComfyUiUpscaleService aiUpscale, VideoSpeedService speed,
-        SoundGenService sound, IOptions<VideoDefaultsOptions> defaults, IOptions<VideoModelsOptions> models,
-        ILogger<GraphExecutor> log)
+        SoundGenService sound, IOptions<VideoDefaultsOptions> defaults, ILogger<GraphExecutor> log)
     {
         _ltx = ltx; _activeModel = activeModel; _coordinator = coordinator;
         _maxine = maxine; _aiUpscale = aiUpscale; _speed = speed; _sound = sound;
-        _defaults = defaults.Value; _models = models.Value; _log = log;
+        _defaults = defaults.Value; _log = log;
     }
 
-    public async Task<ExecResult> RunAsync(JsonElement graphJson, CancellationToken ct)
+    /// <summary>Runs the graph, calling <paramref name="emit"/> for each event.</summary>
+    public async Task RunAsync(JsonElement graphJson, Func<object, Task> emit, CancellationToken ct)
     {
-        var log = new List<string>();
+        Task Log(string t) => emit(new { type = "log", text = t });
         try
         {
             var graph = graphJson.Deserialize<LGraph>(Web) ?? new LGraph();
-            // linkId -> (originNodeId, originSlot)
             var linkMap = new Dictionary<long, (long node, int slot)>();
             foreach (var l in graph.links)
                 if (l.ValueKind == JsonValueKind.Array && l.GetArrayLength() >= 4)
                     linkMap[l[0].GetInt64()] = (l[1].GetInt64(), l[2].GetInt32());
 
-            var outputs = new Dictionary<long, string>();   // nodeId -> produced file path
+            var outputs = new Dictionary<long, string>();
             var done = new HashSet<long>();
             string? finalVideo = null;
 
-            // Fixed-point walk: run any node whose linked inputs are all produced.
             while (done.Count < graph.nodes.Count)
             {
                 var progressed = false;
@@ -65,36 +59,45 @@ public sealed class GraphExecutor
                     var inputs = new Dictionary<string, string>();
                     var ready = true;
                     foreach (var slot in n.inputs ?? new())
-                    {
                         if (slot.link is long lid && linkMap.TryGetValue(lid, out var src))
                         {
                             if (!outputs.TryGetValue(src.node, out var p)) { ready = false; break; }
                             inputs[slot.name ?? ""] = p;
                         }
-                    }
                     if (!ready) continue;
 
-                    var produced = await ExecuteNode(n, inputs, log, ct);
-                    if (produced is not null) outputs[n.id] = produced;
-                    if (n.type == "keithui/save" && inputs.TryGetValue("video", out var fv)) finalVideo = fv;
+                    await emit(new { type = "node-start", node = n.id });
+                    try
+                    {
+                        var produced = await ExecuteNode(n, inputs, emit, Log, ct);
+                        if (produced is not null) outputs[n.id] = produced;
+                        if (n.type == "keithui/save" && inputs.TryGetValue("video", out var fv)) finalVideo = fv;
+                        await emit(new { type = "node-done", node = n.id });
+                    }
+                    catch (Exception ex)
+                    {
+                        await emit(new { type = "node-error", node = n.id, error = ex.Message });
+                        await Log("ERROR @ node " + n.id + ": " + ex.Message);
+                        await emit(new { type = "done", finalVideo = (string?)null, ok = false });
+                        return;
+                    }
                     done.Add(n.id);
                     progressed = true;
                 }
-                if (!progressed) { log.Add("Stopped: a node has unmet inputs (cycle or missing connection)."); break; }
+                if (!progressed) { await Log("Stopped: a node has unmet inputs (cycle or missing connection)."); break; }
             }
 
             finalVideo ??= outputs.Values.LastOrDefault();
-            return new ExecResult(true, finalVideo, log, null);
+            await emit(new { type = "done", finalVideo, ok = true });
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "Graph execution failed");
-            log.Add("ERROR: " + ex.Message);
-            return new ExecResult(false, null, log, ex.Message);
+            await emit(new { type = "done", finalVideo = (string?)null, ok = false, error = ex.Message });
         }
     }
 
-    private async Task<string?> ExecuteNode(LNode n, Dictionary<string, string> inputs, List<string> log, CancellationToken ct)
+    private async Task<string?> ExecuteNode(LNode n, Dictionary<string, string> inputs, Func<object, Task> emit, Func<string, Task> log, CancellationToken ct)
     {
         var w = n.widgets_values ?? new();
         string Str(int i, string d = "") => i < w.Count && w[i].ValueKind == JsonValueKind.String ? w[i].GetString() ?? d : d;
@@ -108,13 +111,13 @@ public sealed class GraphExecutor
             case "keithui/load_image":
             {
                 var file = Str(0);
-                log.Add($"Load Image: {(string.IsNullOrWhiteSpace(file) ? "(none)" : file)}");
+                await log($"Load Image: {(string.IsNullOrWhiteSpace(file) ? "(none)" : Path.GetFileName(file))}");
                 return string.IsNullOrWhiteSpace(file) || !File.Exists(file) ? null : file;
             }
             case "keithui/sound":
             {
                 var staged = await _sound.GenerateAsync(Str(0), Num(1, 5), ct);
-                log.Add($"Generate Sound: '{Str(0)}' -> {Path.GetFileName(staged.Path)}");
+                await log($"Generate Sound: '{Str(0)}' -> {Path.GetFileName(staged.Path)}");
                 return staged.Path;
             }
             case "keithui/generate":
@@ -132,13 +135,24 @@ public sealed class GraphExecutor
                     AudioPath = audIn,
                     Audio = audIn is not null,
                 };
-                var r = await _ltx.GenerateAsync(req, ct);
-                log.Add($"Generate Video [{model}]: {Path.GetFileName(r.SavedPath)}");
+                await log($"Generating [{model}] {req.Resolution} {req.Duration}s…");
+                var genTask = _ltx.GenerateAsync(req, ct);
+                while (await Task.WhenAny(genTask, Task.Delay(1500, ct)) != genTask)
+                {
+                    try
+                    {
+                        var p = await _ltx.GetProgressAsync(ct);
+                        if (p is not null) await emit(new { type = "node-progress", node = n.id, pct = p.Progress });
+                    }
+                    catch { /* progress is best-effort */ }
+                }
+                var r = await genTask;
+                await log($"Generate Video [{model}]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
             }
             case "keithui/upscale":
             {
-                if (vidIn is null) { log.Add("Upscale: no video input — skipped"); return null; }
+                if (vidIn is null) { await log("Upscale: no video input — skipped"); return null; }
                 var engine = Str(0, "ai");
                 if (engine == "ai")
                 {
@@ -149,7 +163,7 @@ public sealed class GraphExecutor
                     var name = $"studio_{Guid.NewGuid():N}{Path.GetExtension(vidIn)}";
                     File.Copy(vidIn, Path.Combine(_aiUpscale.InputDirectory, name), true);
                     var r = await _aiUpscale.UpscaleAsync(name, tw, th, ct);
-                    log.Add($"Upscale [AI]: -> {r.Width}x{r.Height} {Path.GetFileName(r.SavedPath)}");
+                    await log($"Upscale [AI]: -> {r.Width}x{r.Height} {Path.GetFileName(r.SavedPath)}");
                     return r.SavedPath;
                 }
                 else
@@ -161,37 +175,35 @@ public sealed class GraphExecutor
                     await _speed.RestoreAudioAsync(r.SavedPath, vidIn, ct);
                     if (!string.Equals(input, vidIn, StringComparison.OrdinalIgnoreCase))
                         try { File.Delete(input); } catch { /* best effort */ }
-                    log.Add($"Upscale [Maxine {factor}x]: {Path.GetFileName(r.SavedPath)}");
+                    await log($"Upscale [Maxine {factor}x]: {Path.GetFileName(r.SavedPath)}");
                     return r.SavedPath;
                 }
             }
             case "keithui/speed":
             {
-                if (vidIn is null) { log.Add("Speed Up: no video input — skipped"); return null; }
+                if (vidIn is null) { await log("Speed Up: no video input — skipped"); return null; }
                 var factor = double.TryParse(Str(0, "2"), out var sp) ? sp : 2.0;
                 var r = await _speed.RetimeAsync(vidIn, factor, ct);
-                log.Add($"Speed Up [{factor}x]: {Path.GetFileName(r.SavedPath)}");
+                await log($"Speed Up [{factor}x]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
             }
             case "keithui/save":
-                log.Add($"Save: {(vidIn is null ? "(no input)" : Path.GetFileName(vidIn))}");
+                await log($"Save: {(vidIn is null ? "(no input)" : Path.GetFileName(vidIn))}");
                 return null;
             default:
-                log.Add($"Unknown node '{n.type}' — skipped");
+                await log($"Unknown node '{n.type}' — skipped");
                 return null;
         }
     }
 
-    /// <summary>Switches the active model + brings its backend up, then waits for the port to listen.</summary>
-    private async Task EnsureModelReady(string modelId, List<string> log, CancellationToken ct)
+    private async Task EnsureModelReady(string modelId, Func<string, Task> log, CancellationToken ct)
     {
         _activeModel.Set(modelId);
         var sw = await _coordinator.ActivateAsync(modelId, ct);
         if (sw.WasAlreadyUp) return;
-        log.Add($"Starting backend {sw.Backend} (port {sw.Port})…");
+        await log($"Starting backend {sw.Backend} (port {sw.Port})…");
         for (var i = 0; i < 60 && !PortListening(sw.Port); i++)
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
-        // ComfyUI binds the port well before models load; first generation loads them.
     }
 
     private static int Even(int v) => v % 2 == 0 ? v : v + 1;
@@ -205,7 +217,6 @@ public sealed class GraphExecutor
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    // --- LiteGraph serialize() shape ---------------------------------------
     private sealed class LGraph
     {
         public List<LNode> nodes { get; set; } = new();

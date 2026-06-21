@@ -26,20 +26,27 @@ public class StudioController : Controller
     [HttpGet]
     public IActionResult Index() => View();
 
-    /// <summary>Executes the serialized LiteGraph graph and returns the final clip + a step log.</summary>
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Executes the serialized graph and STREAMS per-node events back as newline-
+    /// delimited JSON (node-start / node-progress / node-done / node-error / log / done),
+    /// so the canvas can light up as each node runs.
+    /// </summary>
     [HttpPost]
-    public async Task<IActionResult> Run([FromBody] JsonElement graph, CancellationToken ct)
+    public async Task Run([FromBody] JsonElement graph, CancellationToken ct)
     {
-        var r = await _executor.RunAsync(graph, ct);
-        var url = r.FinalVideo is not null ? Url.Action("Preview", new { path = r.FinalVideo }) : null;
-        return Json(new
+        Response.ContentType = "application/x-ndjson";
+        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers["X-Accel-Buffering"] = "no";
+
+        async Task Emit(object ev)
         {
-            ok = r.Ok,
-            videoUrl = url,
-            fileName = r.FinalVideo is null ? null : Path.GetFileName(r.FinalVideo),
-            log = r.Log,
-            error = r.Error,
-        });
+            await Response.WriteAsync(JsonSerializer.Serialize(ev, JsonOpts) + "\n", ct);
+            await Response.Body.FlushAsync(ct);
+        }
+
+        await _executor.RunAsync(graph, Emit, ct);
     }
 
     /// <summary>Streams a produced clip for the Save/Preview node (guarded to the output tree).</summary>
