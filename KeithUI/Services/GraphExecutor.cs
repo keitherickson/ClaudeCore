@@ -71,7 +71,7 @@ public sealed class GraphExecutor
                     {
                         var produced = await ExecuteNode(n, inputs, emit, Log, ct);
                         if (produced is not null) outputs[n.id] = produced;
-                        if (n.type == "keithui/save" && inputs.TryGetValue("video", out var fv)) finalVideo = fv;
+                        if (n.type == "Preview Save/save" && inputs.TryGetValue("video", out var fv)) finalVideo = fv;
                         await emit(new { type = "node-done", node = n.id });
                     }
                     catch (Exception ex)
@@ -235,7 +235,7 @@ public sealed class GraphExecutor
                 await log($"Speed Up [{factor}x]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
             }
-            case "keithui/save":
+            case "Preview Save/save":
                 await log($"Save: {(vidIn is null ? "(no input)" : Path.GetFileName(vidIn))}");
                 return null;
             default:

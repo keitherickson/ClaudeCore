@@ -254,7 +254,7 @@
     });
 
     // --- Sink --------------------------------------------------------------
-    define("keithui/save", "Save / Preview", "#444", function () {
+    define("Preview Save/save", "Preview Save", "#444", function () {
         this.addInput("video", LiteGraph.VIDEO);
         this.size = [200, 40];
     });
@@ -305,7 +305,7 @@
         var img = LiteGraph.createNode("Image/load_image"); img.pos = [30, 73]; graph.add(img);
         var gen = LiteGraph.createNode("Video/generate");   gen.pos = [298, 73]; graph.add(gen);
         var up = LiteGraph.createNode("Upscaling/upscale_ai");  up.pos = [663, 74]; graph.add(up);
-        var save = LiteGraph.createNode("keithui/save");      save.pos = [943, 82]; graph.add(save);
+        var save = LiteGraph.createNode("Preview Save/save");      save.pos = [943, 82]; graph.add(save);
         img.connect(0, gen, 0);   // Load Image -> Generate (image input)
         gen.connect(0, up, 0);    // Generate -> Upscale (AI)
         up.connect(0, save, 0);   // Upscale -> Save
@@ -364,7 +364,7 @@
     // Nodes whose named input slot must be wired or the run can't do anything
     // useful (the executor would skip them, or there'd be nothing to save).
     var REQUIRED_INPUT = {
-        "keithui/save": { slot: "video", label: "Save / Preview" },
+        "Preview Save/save": { slot: "video", label: "Preview Save" },
         "Upscaling/upscale_ai": { slot: "video", label: "Upscale (AI)" },
         "Upscaling/upscale_maxine": { slot: "video", label: "Upscale (MAXINE)" },
         "Speed/speed": { slot: "video", label: "Speed Up" },
