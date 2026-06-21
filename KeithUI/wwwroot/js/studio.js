@@ -94,19 +94,40 @@
 
     // --- Run ---------------------------------------------------------------
     var statusEl = document.getElementById("status");
-    document.getElementById("run-btn").addEventListener("click", async function () {
-        statusEl.textContent = "Running…";
+    var runBtn = document.getElementById("run-btn");
+    var resultEl = document.getElementById("result");
+    var resultVideo = document.getElementById("result-video");
+    var resultLog = document.getElementById("result-log");
+    var resultDl = document.getElementById("result-dl");
+    document.getElementById("result-close").addEventListener("click", function () { resultEl.classList.remove("show"); });
+
+    runBtn.addEventListener("click", async function () {
+        statusEl.textContent = "Running… (video generation can take minutes)";
+        runBtn.disabled = true;
         try {
-            var data = graph.serialize();
             var r = await fetch("/Studio/Run", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data)
+                body: JSON.stringify(graph.serialize())
             });
             var d = await r.json();
-            statusEl.textContent = d.ok ? d.message : ("Error: " + (d.error || r.status));
+            if (d.log) { resultLog.textContent = d.log.join("\n"); }
+            if (d.ok && d.videoUrl) {
+                resultVideo.src = d.videoUrl;
+                resultDl.href = d.videoUrl;
+                resultEl.classList.add("show");
+                statusEl.textContent = "Done — " + (d.fileName || "");
+            } else if (d.ok) {
+                resultEl.classList.add("show");
+                statusEl.textContent = "Finished (no video output).";
+            } else {
+                resultEl.classList.add("show");
+                statusEl.textContent = "Error: " + (d.error || ("HTTP " + r.status));
+            }
         } catch (e) {
             statusEl.textContent = "Run failed: " + e.message;
+        } finally {
+            runBtn.disabled = false;
         }
     });
     document.getElementById("reset-btn").addEventListener("click", function () {

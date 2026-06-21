@@ -25,6 +25,16 @@
         button.ghost:hover { background: #454545; }
         #status { color: #9a9a9a; font-size: 12px; }
         #graph { position: fixed; top: 44px; left: 0; right: 0; bottom: 0; }
+        #result { position: fixed; right: 14px; bottom: 14px; width: 360px; z-index: 20;
+            background: #232323; border: 1px solid #000; border-radius: 8px; padding: 10px;
+            box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; }
+        #result.show { display: block; }
+        #result header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+        #result header .ttl { font-weight: 600; flex: 1; }
+        #result header .x { cursor: pointer; color: #9a9a9a; }
+        #result video { width: 100%; border-radius: 5px; background: #000; }
+        #result .log { margin-top: 8px; max-height: 130px; overflow: auto; font: 11px/1.5 ui-monospace, monospace;
+            color: #b9b9b9; white-space: pre-wrap; }
     </style>
 </head>
 <body>
@@ -37,6 +47,16 @@
         <span style="color:#6a6a6a;font-size:12px;">right-click canvas to add nodes · drag ports to wire</span>
     </div>
     <canvas id="graph"></canvas>
+
+    <div id="result">
+        <header>
+            <span class="ttl">Result</span>
+            <a id="result-dl" download href="#" style="font-size:12px;">download</a>
+            <span class="x" id="result-close">✕</span>
+        </header>
+        <video id="result-video" controls></video>
+        <div class="log" id="result-log"></div>
+    </div>
 
     <script src="~/lib/litegraph/litegraph.js" asp-append-version="true"></script>
     <script src="~/js/studio.js" asp-append-version="true"></script>
