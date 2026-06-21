@@ -201,7 +201,7 @@
     });
 
     // --- Generate ----------------------------------------------------------
-    define("keithui/generate", "Generate Video", "#345", function () {
+    define("Video/generate", "Generate Video", "#345", function () {
         this.addInput("image", LiteGraph.IMAGE);   // optional (i2v / Wan)
         this.addInput("audio", LiteGraph.AUDIO);    // optional (audio-to-video)
         this.addOutput("video", LiteGraph.VIDEO);
@@ -216,7 +216,7 @@
 
     // Multi-segment generation past the per-run duration cap: each segment is
     // conditioned on the previous segment's last frame, then all are stitched.
-    define("keithui/extend", "Extend Video", "#345", function () {
+    define("Video/extend", "Extend Video", "#345", function () {
         this.addInput("image", LiteGraph.IMAGE);   // optional start frame (i2v / Wan)
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
@@ -303,7 +303,7 @@
     function starterGraph() {
         graph.clear();
         var img = LiteGraph.createNode("Image/load_image"); img.pos = [30, 73]; graph.add(img);
-        var gen = LiteGraph.createNode("keithui/generate");   gen.pos = [298, 73]; graph.add(gen);
+        var gen = LiteGraph.createNode("Video/generate");   gen.pos = [298, 73]; graph.add(gen);
         var up = LiteGraph.createNode("keithui/upscale_ai");  up.pos = [663, 74]; graph.add(up);
         var save = LiteGraph.createNode("keithui/save");      save.pos = [943, 82]; graph.add(save);
         img.connect(0, gen, 0);   // Load Image -> Generate (image input)
@@ -380,8 +380,8 @@
     function validateGraph() {
         var issues = [];
         graph._nodes.forEach(function (n) {
-            if (n.type === "keithui/generate" || n.type === "keithui/extend") {
-                var which = n.type === "keithui/extend" ? "Extend" : "Generate";
+            if (n.type === "Video/generate" || n.type === "Video/extend") {
+                var which = n.type === "Video/extend" ? "Extend" : "Generate";
                 var model = n.widgets[0] && n.widgets[0].value;
                 var prompt = n.widgets[1] && n.widgets[1].value;
                 if (!prompt || !String(prompt).trim())

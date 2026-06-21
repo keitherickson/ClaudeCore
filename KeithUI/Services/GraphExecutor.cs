@@ -120,7 +120,7 @@ public sealed class GraphExecutor
                 await log($"Generate Sound: '{Str(0)}' -> {Path.GetFileName(staged.Path)}");
                 return staged.Path;
             }
-            case "keithui/generate":
+            case "Video/generate":
             {
                 var model = Str(0, "bf16-2.3");
                 await EnsureModelReady(model, log, ct);
@@ -150,7 +150,7 @@ public sealed class GraphExecutor
                 await log($"Generate Video [{model}]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
             }
-            case "keithui/extend":
+            case "Video/extend":
             {
                 var model = Str(0, "bf16-2.3");
                 await EnsureModelReady(model, log, ct);
