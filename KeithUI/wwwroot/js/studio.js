@@ -194,7 +194,7 @@
         this.addInput("audio", LiteGraph.AUDIO);    // optional (audio-to-video)
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
-        addMultilineText(this, "prompt", "a cat playing with a ball of yarn", 5);
+        addMultilineText(this, "prompt", "", 5);
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
         this.addWidget("number", "duration", 20, null, { min: 1, max: 30, step: 10, precision: 0 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
@@ -369,6 +369,9 @@
             if (n.type === "keithui/generate" || n.type === "keithui/extend") {
                 var which = n.type === "keithui/extend" ? "Extend" : "Generate";
                 var model = n.widgets[0] && n.widgets[0].value;
+                var prompt = n.widgets[1] && n.widgets[1].value;
+                if (!prompt || !String(prompt).trim())
+                    issues.push({ node: n.id, msg: which + " Video needs a prompt — add one before running." });
                 if (model === "wan2.2" && !isLinked(n, "image"))
                     issues.push({ node: n.id, msg: "Wan 2.2 is image-to-video — connect a Load Image to the " + which + " node (or pick BF16/NVFP4)." });
             }
