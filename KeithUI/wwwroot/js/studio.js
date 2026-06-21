@@ -223,6 +223,20 @@
         lgcanvas.setDirty(true, true);
     }
 
+    // Nodes whose named input slot must be wired or the run can't do anything
+    // useful (the executor would skip them, or there'd be nothing to save).
+    var REQUIRED_INPUT = {
+        "keithui/save": { slot: "video", label: "Save / Preview" },
+        "keithui/upscale": { slot: "video", label: "Upscale" },
+        "keithui/speed": { slot: "video", label: "Speed Up" },
+    };
+    function isLinked(n, slotName) {
+        if (!n.inputs) return false;
+        for (var i = 0; i < n.inputs.length; i++)
+            if (n.inputs[i].name === slotName && n.inputs[i].link != null) return true;
+        return false;
+    }
+
     // Client-side checks before a (possibly minutes-long) run.
     function validateGraph() {
         var issues = [];
@@ -230,9 +244,16 @@
             if (n.type === "keithui/generate" || n.type === "keithui/extend") {
                 var which = n.type === "keithui/extend" ? "Extend" : "Generate";
                 var model = n.widgets[0] && n.widgets[0].value;
-                var imageLinked = n.inputs && n.inputs[0] && n.inputs[0].link != null;
-                if (model === "wan2.2" && !imageLinked)
+                if (model === "wan2.2" && !isLinked(n, "image"))
                     issues.push({ node: n.id, msg: "Wan 2.2 is image-to-video — connect a Load Image to the " + which + " node (or pick BF16/NVFP4)." });
+            }
+            var req = REQUIRED_INPUT[n.type];
+            if (req && !isLinked(n, req.slot))
+                issues.push({ node: n.id, msg: req.label + " has no " + req.slot + " input connected — wire a video into it." });
+            if (n.type === "keithui/load_image") {
+                var fileW = n.widgets && n.widgets[0];
+                if (!fileW || !fileW.value)
+                    issues.push({ node: n.id, msg: "Load Image has no file — click 📁 upload to pick an image." });
             }
         });
         return issues;
