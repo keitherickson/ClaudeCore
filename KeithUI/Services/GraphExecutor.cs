@@ -114,6 +114,12 @@ public sealed class GraphExecutor
                 await log($"Load Image: {(string.IsNullOrWhiteSpace(file) ? "(none)" : Path.GetFileName(file))}");
                 return string.IsNullOrWhiteSpace(file) || !File.Exists(file) ? null : file;
             }
+            case "Sound/load_sound":
+            {
+                var file = Str(0);
+                await log($"Load Sound: {(string.IsNullOrWhiteSpace(file) ? "(none)" : Path.GetFileName(file))}");
+                return string.IsNullOrWhiteSpace(file) || !File.Exists(file) ? null : file;
+            }
             case "Sound/sound":
             {
                 var staged = await _sound.GenerateAsync(Str(0), Num(1, 5), ct);

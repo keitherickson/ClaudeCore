@@ -71,6 +71,17 @@ public class StudioController : Controller
         return Json(new { ok = true, path, name = Path.GetFileName(path) });
     }
 
+    /// <summary>Stages an uploaded audio clip (for the Load Sound node) and returns its path.</summary>
+    [HttpPost]
+    [RequestSizeLimit(104_857_600)] // 100 MB
+    public async Task<IActionResult> UploadAudio(IFormFile? audio, CancellationToken ct)
+    {
+        if (audio is not { Length: > 0 })
+            return BadRequest(new { ok = false, error = "No audio." });
+        var path = await _ltx.StageAudioAsync(audio, ct);
+        return Json(new { ok = true, path, name = Path.GetFileName(path) });
+    }
+
     /// <summary>Serves a staged image for the node thumbnail (guarded to the input tree).</summary>
     [HttpGet]
     public IActionResult Image(string path)

@@ -200,6 +200,44 @@
         this.size = [240, 80];
     });
 
+    // Upload an audio file to use as the Generate Video audio track (audio-to-video).
+    define("Sound/load_sound", "Load Sound", "#553", function () {
+        var self = this;
+        this.addOutput("audio", LiteGraph.AUDIO);
+        var fileW = this.addWidget("text", "file", "");
+        this.addWidget("button", "📁 upload", null, function () {
+            var inp = document.createElement("input");
+            inp.type = "file"; inp.accept = "audio/*";
+            inp.onchange = async function () {
+                if (!inp.files || !inp.files[0]) return;
+                self.title = "Load Sound — uploading…"; self.setDirtyCanvas(true, true);
+                try {
+                    var fd = new FormData(); fd.append("audio", inp.files[0]);
+                    var d = await (await fetch("/Studio/UploadAudio", { method: "POST", body: fd })).json();
+                    if (d.ok) { fileW.value = d.path; self._sndName = inp.files[0].name; self.title = "Load Sound"; }
+                    else { self.title = "Load Sound — failed"; }
+                } catch (e) { self.title = "Load Sound — error"; }
+                self.setDirtyCanvas(true, true);
+            };
+            inp.click();
+        });
+        if (fileW.value) this._sndName = fileW.value.split(/[\\/]/).pop();
+        // show the loaded clip's name (no waveform — audio has no visual preview)
+        this.onDrawBackground = function (ctx) {
+            if (this.flags.collapsed) return;
+            var label = this._sndName ? "♪ " + this._sndName : "no sound";
+            if (label.length > 32) label = label.slice(0, 31) + "…";
+            ctx.save();
+            ctx.beginPath(); ctx.rect(0, 0, this.size[0], this.size[1]); ctx.clip();   // never overflow the node
+            ctx.font = "11px Arial"; ctx.textAlign = "center";
+            ctx.fillStyle = this._sndName ? "#caa84a" : "#666";
+            ctx.fillText(label, this.size[0] / 2, this.size[1] - 8);
+            ctx.restore();
+            ctx.textAlign = "left";
+        };
+        this.size = [240, 96];
+    });
+
     // --- Generate ----------------------------------------------------------
     define("Video/generate", "Generate Video", "#345", function () {
         this.addInput("image", LiteGraph.IMAGE);   // optional (i2v / Wan)
@@ -396,6 +434,11 @@
                 var fileW = n.widgets && n.widgets[0];
                 if (!fileW || !fileW.value)
                     issues.push({ node: n.id, msg: "Load Image has no file — click 📁 upload to pick an image." });
+            }
+            if (n.type === "Sound/load_sound") {
+                var sndW = n.widgets && n.widgets[0];
+                if (!sndW || !sndW.value)
+                    issues.push({ node: n.id, msg: "Load Sound has no file — click 📁 upload to pick an audio file." });
             }
         });
         return issues;
