@@ -208,12 +208,13 @@
         this.addInput("image", LiteGraph.IMAGE);   // optional start frame (i2v / Wan)
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
-        this.addWidget("text", "prompt", "a drone shot flying over a coastline");
+        addMultilineText(this, "prompt", "a drone shot flying over a coastline", 5);
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
         this.addWidget("number", "secPerSeg", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
         this.addWidget("number", "segments", 3, null, { min: 2, max: 8, step: 10, precision: 0 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
-        this.size = [280, 170];
+        this.size = this.computeSize();          // size to fit every control inside the border
+        if (this.size[0] < 320) this.size[0] = 320;
     });
 
     // --- Post-processing ---------------------------------------------------
