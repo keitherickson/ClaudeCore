@@ -346,10 +346,12 @@
     function starterGraph() {
         graph.clear();
         var img = LiteGraph.createNode("Image/load_image"); img.pos = [30, 73]; graph.add(img);
+        var snd = LiteGraph.createNode("Sound/load_sound"); snd.pos = [37, 368]; graph.add(snd);
         var gen = LiteGraph.createNode("Video/generate");   gen.pos = [298, 73]; graph.add(gen);
         var up = LiteGraph.createNode("Upscaling/upscale_ai");  up.pos = [663, 74]; graph.add(up);
         var save = LiteGraph.createNode("Preview Save/save");      save.pos = [943, 82]; graph.add(save);
-        img.connect(0, gen, 0);   // Load Image -> Generate (image input)
+        img.connect(0, gen, 0);   // Load Image -> Generate (image input, slot 0)
+        snd.connect(0, gen, 1);   // Load Sound -> Generate (audio input, slot 1)
         gen.connect(0, up, 0);    // Generate -> Upscale (AI)
         up.connect(0, save, 0);   // Upscale -> Save
         graph.start();
