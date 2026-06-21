@@ -38,12 +38,23 @@ builder.Services.AddHttpClient<ComfyUiVideoBackend>((sp, client) =>
     client.Timeout = TimeSpan.FromMinutes(opts.GenerationTimeoutMinutes);
 });
 
+// Wan 2.2 14B image-to-video backend (the "quality" model). Runs on the SAME ComfyUI
+// server as the NVFP4 backend, so its typed HttpClient points at the shared ComfyUI URL.
+builder.Services.Configure<WanOptions>(builder.Configuration.GetSection(WanOptions.SectionName));
+builder.Services.AddHttpClient<WanVideoBackend>((sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<WanOptions>>().Value;
+    client.BaseAddress = new Uri(opts.BaseUrl);
+    client.Timeout = TimeSpan.FromMinutes(opts.GenerationTimeoutMinutes);
+});
+
 // Model switch: the registry of selectable models + the persisted active selection,
-// and both backends exposed as ILtxVideoBackend so LtxVideoService can route by key.
+// and all backends exposed as ILtxVideoBackend so LtxVideoService can route by key.
 builder.Services.Configure<VideoModelsOptions>(builder.Configuration.GetSection(VideoModelsOptions.SectionName));
 builder.Services.AddSingleton<ActiveModelStore>();
 builder.Services.AddScoped<ILtxVideoBackend>(sp => sp.GetRequiredService<LtxVideoClient>());
 builder.Services.AddScoped<ILtxVideoBackend>(sp => sp.GetRequiredService<ComfyUiVideoBackend>());
+builder.Services.AddScoped<ILtxVideoBackend>(sp => sp.GetRequiredService<WanVideoBackend>());
 
 builder.Services.AddScoped<LtxVideoService>();
 // Process control for the LTX server (admin page: status + restart + stop).

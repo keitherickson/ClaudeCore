@@ -37,6 +37,13 @@ public sealed class VideoModelsOptions
             Backend = "ComfyUI",
             Description = "FP4 on the 5090 — faster, text-to-video (no audio/extend yet).",
         },
+        new VideoModelEntry
+        {
+            Id = "wan2.2",
+            Label = "Wan 2.2 (quality, i2v)",
+            Backend = "Wan",
+            Description = "Best stability/quality, image-to-video — needs a starting image. ~70-100s. Shares the ComfyUI server.",
+        },
     };
 }
 

@@ -60,7 +60,11 @@ public sealed class VideoBackendCoordinator
     {
         new Backend("LtxDesktop", _ltx.GpuIndex, _ltx.Port,
             _ltx.IsPortListening, _ltx.RestartDetached, _ltx.StopAsync),
+        // NVFP4 and Wan are different graphs on the SAME ComfyUI process — same control,
+        // same port. The same-port skip below keeps a switch between them from cycling it.
         new Backend("ComfyUI", _comfy.GpuIndex, _comfy.Port,
+            _comfy.IsPortListening, () => _comfy.StartDetached(), _comfy.StopAsync),
+        new Backend("Wan", _comfy.GpuIndex, _comfy.Port,
             _comfy.IsPortListening, () => _comfy.StartDetached(), _comfy.StopAsync),
     };
 
@@ -83,16 +87,21 @@ public sealed class VideoBackendCoordinator
             return new BackendSwitchResult(false, entry.Backend, 0, false, Array.Empty<string>(),
                 $"No process control for backend '{entry.Backend}'.");
 
-        // 1. Free the GPU: stop every OTHER backend that shares the target's card.
+        // 1. Free the GPU: stop every OTHER backend that shares the target's card —
+        //    but NOT one that shares the target's port (same server process, e.g. the
+        //    NVFP4 and Wan graphs both live in one ComfyUI), which we must keep running.
         var stopped = new List<string>();
+        var stoppedPorts = new HashSet<int>();
         foreach (var b in backends)
         {
-            if (b.Key == target.Key || b.GpuIndex != target.GpuIndex) continue;
+            if (b.Key == target.Key || b.GpuIndex != target.GpuIndex || b.Port == target.Port) continue;
+            if (stoppedPorts.Contains(b.Port)) continue; // same server already stopped (e.g. NVFP4 + Wan share one)
             if (!b.IsUp()) continue;
             _log.LogInformation("Model switch → {Target}: stopping co-resident {Other} on GPU {Gpu} to free VRAM",
                 target.Key, b.Key, b.GpuIndex);
             await b.Stop(ct);
             stopped.Add(b.Key);
+            stoppedPorts.Add(b.Port);
         }
 
         // 2. Bring the target up if it isn't already (detached; binds shortly).
