@@ -83,8 +83,13 @@ Text-to-video, or image-to-video when a starting image is supplied.
 3. The browser polls `/Video/Progress` during the run; because the engine reports coarse progress, the bar is a smoothed client-side estimate. A **Cancel** button posts to `/Video/Cancel`, which **hard-stops** the render by killing + relaunching the LTX server (`LtxServerControl.RestartDetached` — fire-and-forget so the request returns instantly and the relaunched server is never torn down). The server's own cooperative cancel can't interrupt an in-progress video inference (no per-step hook), so restarting the process is the only way to actually free the GPU mid-render — at the cost of reloading models on the next generation.
 4. `GET /Video/Download?name=…` streams the result (range-enabled, with a path-traversal guard).
 
-### 2. Upscale — `UpscaleController` + `MaxineUpscaleService`
-Super-resolution via the Maxine SDK's `VideoEffectsApp.exe`, run as a per-job child process.
+### 2. Upscale — `UpscaleController` (two engines: Maxine + ComfyUI AI)
+The Upscale page offers two engines, chosen per job:
+
+- **NVIDIA Maxine** (`MaxineUpscaleService`) — fast, but **integer-ratio only** (2×/3×/4×); see below.
+- **AI Super-Resolution** (`ComfyUiUpscaleService`, `POST /Upscale/RunAi`) — **any target resolution**. Runs on the shared ComfyUI server: the validated graph is `LoadVideo → GetVideoComponents → UpscaleModelLoader + ImageUpscaleWithModel` (Real-ESRGAN ×4) `→ ImageScale` (the exact target W×H) `→ CreateVideo → SaveVideo`. The user picks a **target height** (720p/1080p/1440p/4K); the controller reads the source dimensions (`VideoProbe.TryGetDimensions`) and computes an aspect-preserved, even width. ComfyUI decodes any input codec and preserves audio/fps natively, so — unlike the Maxine path — there's **no H.264 pre-transcode or audio re-mux**. The service **auto-starts ComfyUI** if it isn't already up. Caveat: AI upscaling is frame-by-frame (~1 s/frame at ×4), so long clips take minutes — Maxine stays the fast option. Configured under `ComfyUiUpscale`; model lives in `ComfyUI/models/upscale_models`.
+
+**Maxine path (`MaxineUpscaleService`)** — super-resolution via the SDK's `VideoEffectsApp.exe`, run as a per-job child process.
 
 - Effects: **SuperRes** (model; `--mode` 0 compressed / 1 clean), **Upscale** (fast; `--strength`), **ArtifactReduction**.
 - SuperRes requires an output height that is an integer **2×/3×/4×** of the source, so both the Generate flow and the standalone page take a **factor** (not an absolute height) and compute `target = sourceHeight × factor` — the source height is read with [`VideoProbe`](Services/VideoProbe.cs), a dependency-free MP4 `tkhd`-box reader. (An arbitrary absolute height could be a non-integer multiple, which the SDK rejects.)
@@ -148,7 +153,8 @@ The Generate flow can target more than one video model, chosen at runtime from t
 | `LtxVideoService` | Orchestrates a generation: stage image → call server → copy result to output dir. Path-traversal guards on download/reuse. |
 | `LtxServerControl` | Port-listening check + restart of the LTX server process. |
 | `AudioServerControl` | Port-listening check + detached start / scripted stop of the local Stable Audio server (Admin page). |
-| `MaxineUpscaleService` | Runs `VideoEffectsApp.exe` per job; builds args per effect; sets up the DLL `PATH`. |
+| `MaxineUpscaleService` | Runs `VideoEffectsApp.exe` per job; builds args per effect; sets up the DLL `PATH`. Integer-ratio upscaling. |
+| `ComfyUiUpscaleService` | AI upscaling to an arbitrary target resolution via the shared ComfyUI server (ESRGAN ×4 → resize to exact W×H). Auto-starts ComfyUI; preserves audio/fps. |
 | `VideoSpeedService` | Runs ffmpeg `setpts` re-time; keeps + re-times audio (`atempo` chain, with `ffprobe` detection). Also `RestoreAudioAsync` re-muxes the source audio onto the video-only Maxine output. |
 | `VideoProbe` | Reads MP4 display height (no external dependency) to choose a valid SuperRes factor. |
 | `SoundGenService` / `LocalAudioClient` | Generate a sound effect from a text prompt via the self-hosted Stable Audio server (typed `HttpClient`) and stage the WAV into the LTX input dir for audio-to-video. |
@@ -170,6 +176,7 @@ The Generate flow can target more than one video model, chosen at runtime from t
 | `VideoSpeed` | ffmpeg re-time | `FfmpegPath`, `OutputDirectory`, `InputDirectory` (Speed page staging), `TimeoutMinutes` |
 | `LocalAudio` | AI sound generation (self-hosted) | `BaseUrl` (`:8770`), `GpuIndex` (CUDA device for the audio model, default `1`), `MaxDurationSeconds`, `TimeoutMinutes`, `StartScriptPath`, `StopScriptPath` |
 | `ComfyUI` | NVFP4 video backend | `BaseUrl` (`:8188`), `GpuIndex` (CUDA device — **must be the 5090**, default `0`), `StartScriptPath`, `StopScriptPath`, `Checkpoint`, `DistilledLora`, `TextEncoder`, `Steps`, `Sampler`, `GenerationTimeoutMinutes` |
+| `ComfyUiUpscale` | AI upscale engine | `BaseUrl` (`:8188`, shared ComfyUI), `InputDirectory`, `Model` (ESRGAN, in `upscale_models`), `UpscaleMethod`, `OutputDirectory`, `TimeoutMinutes` |
 
 > `VideoSpeed:FfmpegPath` points at an absolute, **version-specific** path under the winget package folder; a `winget upgrade` of ffmpeg changes it and must be updated.
 

@@ -72,6 +72,16 @@ builder.Services.AddSingleton<LastImageStore>();
 builder.Services.Configure<MaxineUpscaleOptions>(builder.Configuration.GetSection(MaxineUpscaleOptions.SectionName));
 builder.Services.AddScoped<MaxineUpscaleService>();
 
+// AI upscaling via ComfyUI (arbitrary target resolution) — alternative engine to Maxine,
+// on the shared ComfyUI server. Typed HttpClient with a generous timeout (frame-by-frame).
+builder.Services.Configure<ComfyUiUpscaleOptions>(builder.Configuration.GetSection(ComfyUiUpscaleOptions.SectionName));
+builder.Services.AddHttpClient<ComfyUiUpscaleService>((sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<ComfyUiUpscaleOptions>>().Value;
+    client.BaseAddress = new Uri(opts.BaseUrl);
+    client.Timeout = TimeSpan.FromMinutes(opts.TimeoutMinutes + 5);
+});
+
 // Optional "play faster" step: re-times a clip with ffmpeg after upscaling.
 builder.Services.Configure<VideoSpeedOptions>(builder.Configuration.GetSection(VideoSpeedOptions.SectionName));
 builder.Services.AddScoped<VideoSpeedService>();

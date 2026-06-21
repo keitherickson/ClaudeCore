@@ -6,7 +6,7 @@
     <div class="col-lg-7">
         <h1 class="h3 mb-1">Upscale Video</h1>
         <p class="text-muted">
-            NVIDIA Maxine Video Effects on your RTX 5090 — super-resolution up to 4K.
+            AI super-resolution on your RTX 5090 — NVIDIA Maxine (integer ratios) or ComfyUI AI (any target resolution).
             <span id="mx-status" class="badge bg-secondary">checking…</span>
         </p>
 
@@ -16,8 +16,16 @@
                 <input type="file" name="video" id="video" class="form-control" accept="video/*" required />
             </div>
 
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Engine</label>
+                <select name="engine" id="engine" class="form-select">
+                    <option value="maxine" selected>NVIDIA Maxine &mdash; fast, integer 2&times;/3&times;/4&times;</option>
+                    <option value="ai">AI Super-Resolution (ComfyUI) &mdash; any target resolution</option>
+                </select>
+            </div>
+
             <div class="row g-3">
-                <div class="col-6 col-md-4">
+                <div class="col-6 col-md-4 maxine-only">
                     <label class="form-label">Effect</label>
                     <select name="effect" id="effect" class="form-select">
                         <option value="SuperRes" selected>Super Resolution (model)</option>
@@ -25,7 +33,7 @@
                         <option value="ArtifactReduction">Artifact Reduction</option>
                     </select>
                 </div>
-                <div class="col-6 col-md-4" id="factor-wrap">
+                <div class="col-6 col-md-4 maxine-only" id="factor-wrap">
                     <label class="form-label">Upscale factor</label>
                     <select name="factor" id="factor" class="form-select">
                         <option value="2" selected>2&times;</option>
@@ -34,16 +42,26 @@
                     </select>
                     <div class="form-text">Output height = source &times; factor.</div>
                 </div>
-                <div class="col-6 col-md-4" id="mode-wrap">
+                <div class="col-6 col-md-4 maxine-only" id="mode-wrap">
                     <label class="form-label">Mode</label>
                     <select name="mode" id="mode" class="form-select">
                         <option value="1" selected>Clean source</option>
                         <option value="0">Compressed source</option>
                     </select>
                 </div>
-                <div class="col-6 col-md-4 d-none" id="strength-wrap">
+                <div class="col-6 col-md-4 maxine-only d-none" id="strength-wrap">
                     <label class="form-label">Sharpening</label>
                     <input type="number" name="strength" id="strength" class="form-control" min="0" max="1" step="0.1" value="0.4" />
+                </div>
+                <div class="col-6 col-md-4 ai-only d-none" id="target-wrap">
+                    <label class="form-label">Target height</label>
+                    <select name="targetHeight" id="targetHeight" class="form-select">
+                        <option value="720">720p (1280&times;720)</option>
+                        <option value="1080" selected>1080p (Full HD)</option>
+                        <option value="1440">1440p (QHD)</option>
+                        <option value="2160">2160p (4K)</option>
+                    </select>
+                    <div class="form-text">Upscales to this height; width keeps the source aspect.</div>
                 </div>
                 <div class="col-6 col-md-4">
                     <div class="form-check">
@@ -93,12 +111,14 @@
     const form = document.getElementById("up-form");
     const btn = document.getElementById("up-btn");
     const statusBadge = document.getElementById("mx-status");
+    const engineSel = document.getElementById("engine");
     const effectSel = document.getElementById("effect");
     const modeWrap = document.getElementById("mode-wrap");
     const strengthWrap = document.getElementById("strength-wrap");
     const factorWrap = document.getElementById("factor-wrap");
     const speedUpChk = document.getElementById("speedUp");
     const speedFactorSel = document.getElementById("speedFactor");
+    let aiReady = false;
     const busyCard = document.getElementById("busy-card");
     const resultCard = document.getElementById("result-card");
     const resultVideo = document.getElementById("result-video");
@@ -115,28 +135,45 @@
         factorWrap.classList.toggle("d-none", e === "ArtifactReduction");
     }
     effectSel.addEventListener("change", syncEffectFields);
-    syncEffectFields();
+
+    function syncEngine() {
+        const ai = engineSel.value === "ai";
+        document.querySelectorAll(".maxine-only").forEach(el => el.classList.toggle("d-none", ai));
+        document.querySelectorAll(".ai-only").forEach(el => el.classList.toggle("d-none", !ai));
+        if (!ai) syncEffectFields();          // restore Maxine's effect-dependent visibility
+        updateBadge();
+    }
+    engineSel.addEventListener("change", syncEngine);
 
     speedUpChk.addEventListener("change", function () {
         speedFactorSel.classList.toggle("d-none", !speedUpChk.checked);
     });
 
+    let health = null;
+    function updateBadge() {
+        if (!health) { statusBadge.className = "badge bg-secondary"; statusBadge.textContent = "checking…"; return; }
+        const ai = engineSel.value === "ai";
+        const part = ai ? health.ai : health.maxine;
+        if (part && part.ready) {
+            statusBadge.className = "badge bg-success";
+            statusBadge.textContent = ai ? "AI ready" : "Maxine ready";
+            statusBadge.title = "";
+        } else {
+            statusBadge.className = "badge bg-warning text-dark";
+            statusBadge.textContent = ai ? "AI model missing" : "Maxine not installed";
+            statusBadge.title = (part && part.error) || "";
+        }
+    }
     async function checkHealth() {
         try {
-            const r = await fetch("/Upscale/Health");
-            const d = await r.json();
-            if (d.ok) {
-                statusBadge.className = "badge bg-success";
-                statusBadge.textContent = "SDK ready";
-            } else {
-                statusBadge.className = "badge bg-warning text-dark";
-                statusBadge.textContent = "SDK not installed";
-                statusBadge.title = d.error || "";
-            }
+            health = await (await fetch("/Upscale/Health")).json();
+            aiReady = !!(health.ai && health.ai.ready);
         } catch {
             statusBadge.className = "badge bg-danger";
             statusBadge.textContent = "unavailable";
+            return;
         }
+        updateBadge();
     }
 
     form.addEventListener("submit", async function (e) {
@@ -148,15 +185,18 @@
         try {
             const data = new FormData(form);
             if (!speedUpChk.checked) data.set("speedUp", "false");
-            const resp = await fetch("/Upscale/Run", { method: "POST", body: data });
+            const ai = engineSel.value === "ai";
+            const resp = await fetch(ai ? "/Upscale/RunAi" : "/Upscale/Run", { method: "POST", body: data });
             const result = await resp.json();
             if (resp.ok && result.ok) {
                 const url = "/Upscale/Download?name=" + encodeURIComponent(result.fileName);
                 resultVideo.src = url;
                 resultDownload.href = url;
-                const sizeNote = result.height ? ` · ${result.height}p` : "";
                 const speedNote = result.speed ? ` · ${result.speed}x speed` : "";
-                resultPath.textContent = `${result.effect}${sizeNote}${speedNote} · saved to ${result.savedPath}`;
+                const label = ai
+                    ? `AI super-res · ${result.width}×${result.height}${speedNote}`
+                    : `${result.effect}${result.height ? ` · ${result.height}p` : ""}${speedNote}`;
+                resultPath.textContent = `${label} · saved to ${result.savedPath}`;
                 resultCard.classList.remove("d-none");
             } else {
                 throw new Error(result.error || ("HTTP " + resp.status));
@@ -170,6 +210,7 @@
         }
     });
 
+    syncEngine();
     checkHealth();
 })();
 </script>

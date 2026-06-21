@@ -8,12 +8,14 @@ public class UpscaleController : Controller
     private static readonly string[] AllowedEffects = { "SuperRes", "Upscale", "ArtifactReduction" };
 
     private readonly MaxineUpscaleService _service;
+    private readonly ComfyUiUpscaleService _ai;
     private readonly VideoSpeedService _speed;
     private readonly ILogger<UpscaleController> _logger;
 
-    public UpscaleController(MaxineUpscaleService service, VideoSpeedService speed, ILogger<UpscaleController> logger)
+    public UpscaleController(MaxineUpscaleService service, ComfyUiUpscaleService ai, VideoSpeedService speed, ILogger<UpscaleController> logger)
     {
         _service = service;
+        _ai = ai;
         _speed = speed;
         _logger = logger;
     }
@@ -24,8 +26,68 @@ public class UpscaleController : Controller
     [HttpGet]
     public IActionResult Health()
     {
-        var ready = _service.IsReady(out var problem);
-        return Json(new { ok = ready, error = problem });
+        var maxineReady = _service.IsReady(out var maxineProblem);
+        var aiReady = _ai.IsReady(out var aiProblem);
+        return Json(new
+        {
+            ok = maxineReady,                  // back-compat: existing page reads ok = Maxine
+            error = maxineProblem,
+            maxine = new { ready = maxineReady, error = maxineProblem },
+            ai = new { ready = aiReady, error = aiProblem },
+        });
+    }
+
+    /// <summary>
+    /// AI upscale via ComfyUI to an arbitrary target height (aspect preserved). The
+    /// alternative engine to Maxine — no integer-ratio restriction.
+    /// </summary>
+    [HttpPost]
+    [RequestSizeLimit(2_147_483_648)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 2_147_483_648)]
+    public async Task<IActionResult> RunAi(
+        [FromForm] int targetHeight,
+        [FromForm] bool speedUp,
+        [FromForm] double speedFactor,
+        IFormFile? video,
+        CancellationToken ct)
+    {
+        if (video is not { Length: > 0 })
+            return BadRequest(new { ok = false, error = "Please choose a video to upscale." });
+        targetHeight = Math.Clamp(targetHeight <= 0 ? 1080 : targetHeight, 240, 4320);
+
+        try
+        {
+            var name = await _ai.StageInputAsync(video, ct);
+            var dims = VideoProbe.TryGetDimensions(Path.Combine(_ai.InputDirectory, name));
+
+            // Preserve aspect: width from source ratio (fallback 16:9 if unreadable). Even dims.
+            int targetW = dims is { } d
+                ? (int)Math.Round((double)d.Width / d.Height * targetHeight)
+                : targetHeight * 16 / 9;
+            int Even(int v) => v % 2 == 0 ? v : v + 1;
+            targetW = Even(Math.Max(2, targetW));
+            int targetH = Even(targetHeight);
+
+            var result = await _ai.UpscaleAsync(name, targetW, targetH, ct);
+
+            var fileName = result.FileName;
+            var savedPath = result.SavedPath;
+            double? appliedSpeed = null;
+            if (speedUp && speedFactor > 1.0)
+            {
+                var sped = await _speed.RetimeAsync(result.SavedPath, speedFactor, ct);
+                fileName = sped.FileName;
+                savedPath = sped.SavedPath;
+                appliedSpeed = sped.Speed;
+            }
+
+            return Json(new { ok = true, fileName, savedPath, engine = "ai", width = result.Width, height = result.Height, speed = appliedSpeed });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ComfyUI AI upscale failed");
+            return StatusCode(500, new { ok = false, error = ex.Message });
+        }
     }
 
     [HttpPost]

@@ -12,12 +12,15 @@ public static class VideoProbe
 {
     private readonly record struct Box(string Type, long PayloadStart, long End);
 
-    public static int? TryGetHeight(string path)
+    public static int? TryGetHeight(string path) => TryGetDimensions(path)?.Height;
+
+    /// <summary>Reads the largest video track's display width+height, or null if unreadable.</summary>
+    public static (int Width, int Height)? TryGetDimensions(string path)
     {
         try
         {
             using var fs = File.OpenRead(path);
-            int? best = null;
+            (int W, int H)? best = null;
             foreach (var moov in Boxes(fs, 0, fs.Length))
             {
                 if (moov.Type != "moov") continue;
@@ -27,8 +30,8 @@ public static class VideoProbe
                     foreach (var tkhd in Boxes(fs, trak.PayloadStart, trak.End))
                     {
                         if (tkhd.Type != "tkhd") continue;
-                        var h = ReadTkhdHeight(fs, tkhd);
-                        if (h.HasValue && (best is null || h.Value > best.Value)) best = h.Value;
+                        var wh = ReadTkhdDimensions(fs, tkhd);
+                        if (wh.HasValue && (best is null || wh.Value.H > best.Value.H)) best = wh;
                     }
                 }
             }
@@ -71,16 +74,16 @@ public static class VideoProbe
         }
     }
 
-    private static int? ReadTkhdHeight(Stream s, Box tkhd)
+    private static (int W, int H)? ReadTkhdDimensions(Stream s, Box tkhd)
     {
         long whPos = tkhd.End - 8; // width(4) + height(4), each 16.16 fixed-point
         if (whPos < tkhd.PayloadStart) return null;
         s.Position = whPos;
         var buf = new byte[8];
         if (ReadFully(s, buf, 8) != 8) return null;
-        uint height = BinaryPrimitives.ReadUInt32BigEndian(buf.AsSpan(4, 4));
-        int h = (int)(height >> 16);
-        return h > 0 ? h : null;
+        int w = (int)(BinaryPrimitives.ReadUInt32BigEndian(buf.AsSpan(0, 4)) >> 16);
+        int h = (int)(BinaryPrimitives.ReadUInt32BigEndian(buf.AsSpan(4, 4)) >> 16);
+        return (w > 0 && h > 0) ? (w, h) : null;
     }
 
     private static int ReadFully(Stream s, byte[] buf, int count)
