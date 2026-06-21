@@ -22,6 +22,60 @@
         LiteGraph.registerNodeType(type, Node);
     }
 
+    // A tall, multi-line text widget. LiteGraph's stock "text" widget is a single
+    // 20px line that truncates at 30 chars; we want a big prompt box. Using a custom
+    // type routes drawing + clicks to the default path, so we draw a multi-row box
+    // with wrapped text and open LiteGraph's built-in multi-line editor on click.
+    function wrapText(ctx, text, maxWidth) {
+        var out = [];
+        var paras = String(text == null ? "" : text).split("\n");
+        for (var p = 0; p < paras.length; p++) {
+            var words = paras[p].split(" "), line = "";
+            for (var i = 0; i < words.length; i++) {
+                var test = line ? line + " " + words[i] : words[i];
+                if (line && ctx.measureText(test).width > maxWidth) { out.push(line); line = words[i]; }
+                else line = test;
+            }
+            out.push(line);
+        }
+        return out;
+    }
+    function addMultilineText(node, name, value, rows) {
+        var LINE = 16, LABEL_H = 15, PAD = 8;
+        var w = node.addWidget("text", name, value, null, {});
+        w.type = "multiline";   // route away from the single-line "text" renderer
+        w.computeSize = function () { return [0, LABEL_H + rows * LINE + PAD]; };
+        w.draw = function (ctx, n, width, y) {
+            var margin = 15, boxW = width - margin * 2, h = LABEL_H + rows * LINE + PAD - 4;
+            ctx.save();
+            ctx.strokeStyle = LiteGraph.WIDGET_OUTLINE_COLOR;
+            ctx.fillStyle = LiteGraph.WIDGET_BGCOLOR;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(margin, y, boxW, h, 6); else ctx.rect(margin, y, boxW, h);
+            ctx.fill(); ctx.stroke();
+            ctx.beginPath(); ctx.rect(margin, y, boxW, h); ctx.clip();
+            ctx.textAlign = "left";
+            ctx.font = "11px Arial"; ctx.fillStyle = LiteGraph.WIDGET_SECONDARY_TEXT_COLOR;
+            ctx.fillText(this.name, margin + 8, y + 11);
+            ctx.font = "12px Arial"; ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
+            var lines = wrapText(ctx, this.value, boxW - 16);
+            for (var i = 0; i < lines.length && i < rows; i++)
+                ctx.fillText(lines[i], margin + 8, y + LABEL_H + 9 + i * LINE);
+            ctx.restore();
+        };
+        w.mouse = function (event, pos, n) {
+            if (event.type === LiteGraph.pointerevents_method + "down") {
+                var self = this;
+                window.lgcanvas.prompt(self.name, self.value, function (v) {
+                    self.value = v; if (self.callback) self.callback(v); n.setDirtyCanvas(true, true);
+                }, event, true);   // true => multi-line textarea editor
+                return true;
+            }
+            return false;
+        };
+        return w;
+    }
+
     // Drop LiteGraph's ~176 built-in stock nodes (math/const/logic/events/…) so the
     // "Add Node" menu shows ONLY the KeithVision-backed nodes defined below — every
     // node in the palette maps to a real executor case, nothing decorative.
@@ -84,11 +138,12 @@
         this.addInput("audio", LiteGraph.AUDIO);    // optional (audio-to-video)
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
-        this.addWidget("text", "prompt", "a cat playing with a ball of yarn");
+        addMultilineText(this, "prompt", "a cat playing with a ball of yarn", 5);
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
         this.addWidget("number", "duration", 20, null, { min: 1, max: 30, step: 10, precision: 0 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
-        this.size = [280, 150];
+        this.size = this.computeSize();          // size to fit every control inside the border
+        if (this.size[0] < 320) this.size[0] = 320;
     });
 
     // Multi-segment generation past the per-run duration cap: each segment is
