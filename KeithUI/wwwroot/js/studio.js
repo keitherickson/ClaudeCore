@@ -280,4 +280,51 @@
     document.getElementById("reset-btn").addEventListener("click", function () {
         nodeStatus = {}; nodeProgress = {}; starterGraph(); resize(); statusEl.textContent = "";
     });
+
+    // --- Save / load graphs ------------------------------------------------
+    // After a graph.configure(), Load Image nodes need their thumbnail re-fetched:
+    // the build() constructor runs before widget values are applied, so the
+    // in-constructor re-attach sees an empty path. Do it here once values exist.
+    function reattachThumbnails() {
+        graph._nodes.forEach(function (n) {
+            if (n.type !== "keithui/load_image") return;
+            var fileW = n.widgets && n.widgets[0];
+            if (!fileW || !fileW.value) return;
+            n._img = new Image();
+            n._img.onload = function () { n.setDirtyCanvas(true, true); };
+            n._img.src = "/Studio/Image?path=" + encodeURIComponent(fileW.value);
+        });
+    }
+
+    document.getElementById("save-btn").addEventListener("click", function () {
+        var json = JSON.stringify(graph.serialize(), null, 2);
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+        a.download = "keithui-graph-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".json";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        statusEl.textContent = "Saved graph to " + a.download;
+    });
+
+    var loadFile = document.getElementById("load-file");
+    document.getElementById("load-btn").addEventListener("click", function () { loadFile.click(); });
+    loadFile.addEventListener("change", function () {
+        if (!loadFile.files || !loadFile.files[0]) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+            try {
+                var data = JSON.parse(reader.result);
+                nodeStatus = {}; nodeProgress = {};
+                graph.configure(data);
+                graph.start();
+                reattachThumbnails();
+                resize();
+                statusEl.textContent = "Loaded " + graph._nodes.length + " nodes from " + loadFile.files[0].name;
+            } catch (e) {
+                statusEl.textContent = "Load failed: " + e.message;
+            }
+            loadFile.value = "";   // allow re-loading the same file
+        };
+        reader.readAsText(loadFile.files[0]);
+    });
 })();
