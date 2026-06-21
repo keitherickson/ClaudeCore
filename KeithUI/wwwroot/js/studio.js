@@ -204,7 +204,11 @@
     define("Sound/load_sound", "Load Sound", "#553", function () {
         var self = this;
         this.addOutput("audio", LiteGraph.AUDIO);
+        // Holds the staged path (widget index 0 — the executor reads it) but is not
+        // drawn: showing a long absolute path overflowed the node. The "♪ name"
+        // label below conveys what's loaded instead.
         var fileW = this.addWidget("text", "file", "");
+        fileW.type = "hidden"; fileW.computeSize = function () { return [0, 0]; };
         this.addWidget("button", "📁 upload", null, function () {
             var inp = document.createElement("input");
             inp.type = "file"; inp.accept = "audio/*";
@@ -235,7 +239,7 @@
             ctx.restore();
             ctx.textAlign = "left";
         };
-        this.size = [240, 96];
+        this.size = [240, 78];
     });
 
     // --- Generate ----------------------------------------------------------
@@ -426,6 +430,9 @@
                     issues.push({ node: n.id, msg: which + " Video needs a prompt — add one before running." });
                 if (model === "wan2.2" && !isLinked(n, "image"))
                     issues.push({ node: n.id, msg: "Wan 2.2 is image-to-video — connect a Load Image to the " + which + " node (or pick BF16/NVFP4)." });
+                // Audio-to-video only works on the BF16 backend (NVFP4 is text-only, Wan is image-only).
+                if (n.type === "Video/generate" && isLinked(n, "audio") && model !== "bf16-2.3")
+                    issues.push({ node: n.id, msg: "Audio-to-video needs the BF16 model — set Generate's model to bf16-2.3, or disconnect the audio input." });
             }
             var req = REQUIRED_INPUT[n.type];
             if (req && !isLinked(n, req.slot))
