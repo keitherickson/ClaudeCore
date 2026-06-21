@@ -22,6 +22,11 @@
         LiteGraph.registerNodeType(type, Node);
     }
 
+    // Drop LiteGraph's ~176 built-in stock nodes (math/const/logic/events/…) so the
+    // "Add Node" menu shows ONLY the KeithVision-backed nodes defined below — every
+    // node in the palette maps to a real executor case, nothing decorative.
+    LiteGraph.clearRegisteredTypes();
+
     // --- Sources -----------------------------------------------------------
     define("keithui/load_image", "Load Image", "#355", function () {
         var self = this;
