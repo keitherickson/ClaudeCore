@@ -20,6 +20,7 @@ stable-audio-tools format, which StableAudioPipeline can't load directly.
 """
 import io
 import os
+import threading
 
 import soundfile as sf
 import torch
@@ -34,8 +35,14 @@ STEPS = int(os.environ.get("AUDIO_STEPS", "100"))
 MAX_SECONDS = float(os.environ.get("AUDIO_MAX_SECONDS", "30"))
 NEGATIVE_PROMPT = os.environ.get("AUDIO_NEGATIVE_PROMPT", "Low quality.")
 
+# Generation runs on the GPU when available, but the model is parked in CPU RAM
+# between requests and only moved onto the GPU for the duration of a generation,
+# so it doesn't hold VRAM the video models need on a shared single-GPU box.
+GEN_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 app = FastAPI()
-state = {"pipe": None, "device": "cpu", "sample_rate": 44100, "error": None}
+state = {"pipe": None, "device": GEN_DEVICE, "sample_rate": 44100, "error": None}
+_gen_lock = threading.Lock()   # serialize generations (one GPU residency at a time)
 
 
 class GenerateRequest(BaseModel):
@@ -48,14 +55,14 @@ def load_model():
     try:
         from diffusers import StableAudioPipeline
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.float16 if device == "cuda" else torch.float32
-        pipe = StableAudioPipeline.from_pretrained(MODEL_ID, torch_dtype=dtype).to(device)
+        dtype = torch.float16 if GEN_DEVICE == "cuda" else torch.float32
+        # Load to CPU RAM; moved onto the GPU only during a generation (see /generate).
+        pipe = StableAudioPipeline.from_pretrained(MODEL_ID, torch_dtype=dtype)
+        pipe.to("cpu")
 
         state["pipe"] = pipe
-        state["device"] = device
         state["sample_rate"] = int(pipe.vae.sampling_rate)
-        print(f"[audio_server] loaded {MODEL_ID} on {device} @ {state['sample_rate']} Hz", flush=True)
+        print(f"[audio_server] loaded {MODEL_ID} (parked on CPU, generates on {GEN_DEVICE}) @ {state['sample_rate']} Hz", flush=True)
     except Exception as e:  # surfaced via /health rather than crashing the server
         state["error"] = repr(e)
         print(f"[audio_server] model load failed: {e!r}", flush=True)
@@ -85,21 +92,30 @@ def generate(req: GenerateRequest):
     seconds = req.seconds if (req.seconds and req.seconds > 0) else 10.0
     seconds = max(1.0, min(MAX_SECONDS, float(seconds)))
 
-    # Fresh random seed each call so re-generating the same prompt gives variety.
-    seed = int.from_bytes(os.urandom(4), "little")
-    generator = torch.Generator(state["device"]).manual_seed(seed)
-
-    result = state["pipe"](
-        prompt=text,
-        negative_prompt=NEGATIVE_PROMPT,
-        num_inference_steps=STEPS,
-        audio_end_in_s=seconds,
-        num_waveforms_per_prompt=1,
-        generator=generator,
-    ).audios
-
-    # diffusers returns (channels, samples) float; soundfile wants (samples, channels).
-    waveform = result[0].T.float().cpu().numpy()
+    pipe = state["pipe"]
+    # Move onto the GPU just for this generation, then off again so the VRAM is
+    # released for the video models. Serialized so only one residency happens at a time.
+    with _gen_lock:
+        try:
+            if GEN_DEVICE == "cuda":
+                pipe.to("cuda")
+            # Fresh random seed each call so re-generating the same prompt gives variety.
+            seed = int.from_bytes(os.urandom(4), "little")
+            generator = torch.Generator(GEN_DEVICE).manual_seed(seed)
+            result = pipe(
+                prompt=text,
+                negative_prompt=NEGATIVE_PROMPT,
+                num_inference_steps=STEPS,
+                audio_end_in_s=seconds,
+                num_waveforms_per_prompt=1,
+                generator=generator,
+            ).audios
+            # diffusers returns (channels, samples) float; soundfile wants (samples, channels).
+            waveform = result[0].T.float().cpu().numpy()
+        finally:
+            if GEN_DEVICE == "cuda":
+                pipe.to("cpu")
+                torch.cuda.empty_cache()
 
     buf = io.BytesIO()
     sf.write(buf, waveform, state["sample_rate"], format="WAV")
