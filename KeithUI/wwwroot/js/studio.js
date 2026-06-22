@@ -4,6 +4,10 @@
 (function () {
     "use strict";
 
+    // Where the Preview Save node's inline video area starts (below its filename +
+    // download widgets). Shared by the node's draw and the video-overlay placement.
+    var SAVE_VIDEO_TOP = 80;
+
     // Port type colors (so the wires read like ComfyUI).
     LiteGraph.IMAGE = "IMAGE"; LiteGraph.AUDIO = "AUDIO"; LiteGraph.VIDEO = "VIDEO";
     if (LGraphCanvas.link_type_colors) {
@@ -297,14 +301,26 @@
     });
 
     // --- Sink --------------------------------------------------------------
-    // Plays the result inline: the body reserves a black preview area that an
-    // HTML <video> element is floated over once a run produces a clip (see the
-    // in-node video player below). PREVIEW_TOP must match VIDEO_TOP there.
+    // The result pane: a "filename" box + a download button, with the result clip
+    // playing inline (an HTML <video> floated over the black preview area once a
+    // run finishes — see the in-node video player below). The video area starts
+    // at SAVE_VIDEO_TOP, below the two widgets; that value must match VIDEO_TOP.
     define("Preview Save/save", "Preview Save", "#444", function () {
+        var self = this;
         this.addInput("video", LiteGraph.VIDEO);
+        this.addWidget("text", "filename", "output");                 // name for the downloaded file
+        this.addWidget("button", "⭳ download", null, function () {
+            if (!self._videoUrl) return;
+            var name = String((self.widgets[0] && self.widgets[0].value) || "output").trim() || "output";
+            name = name.replace(/[\\/:*?"<>|]/g, "_");                // strip illegal filename chars
+            if (!/\.[a-z0-9]{2,4}$/i.test(name)) name += ".mp4";
+            var a = document.createElement("a");
+            a.href = self._videoUrl; a.download = name;
+            document.body.appendChild(a); a.click(); a.remove();
+        });
         this.onDrawBackground = function (ctx) {
             if (this.flags.collapsed) return;
-            var pad = 8, top = 26, w = this.size[0] - pad * 2, h = this.size[1] - top - pad;
+            var pad = 8, top = SAVE_VIDEO_TOP, w = this.size[0] - pad * 2, h = this.size[1] - top - pad;
             ctx.fillStyle = "#000";
             ctx.beginPath();
             if (ctx.roundRect) ctx.roundRect(pad, top, w, h, 4); else ctx.rect(pad, top, w, h);
@@ -314,7 +330,7 @@
                 ctx.fillText("preview", this.size[0] / 2, top + h / 2 + 4); ctx.textAlign = "left";
             }
         };
-        this.size = [300, 200];
+        this.size = [340, 320];
     });
 
     // --- Canvas ------------------------------------------------------------
@@ -380,7 +396,7 @@
     // floated over the node's preview area, clipped to the canvas (a container
     // with overflow:hidden) and kept aligned with pan/zoom by a rAF loop. One
     // <video> per Preview Save node that has a result.
-    var VIDEO_TOP = 26, VIDEO_PAD = 8;
+    var VIDEO_TOP = SAVE_VIDEO_TOP, VIDEO_PAD = 8;
     var videoLayer = document.createElement("div");
     videoLayer.style.cssText = "position:fixed;overflow:hidden;z-index:25;pointer-events:none;";
     document.body.appendChild(videoLayer);
@@ -419,7 +435,7 @@
         }
         v.src = url;
         var node = graph.getNodeById(parseInt(nodeId, 10));
-        if (node) node._hasVideo = true;
+        if (node) { node._hasVideo = true; node._videoUrl = url; }   // url for the node's download button
         placeVideo(nodeId);
         if (videoRAF == null) videoLoop();
         lgcanvas.setDirty(true, true);
