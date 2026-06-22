@@ -364,7 +364,7 @@
         var snd = LiteGraph.createNode("Sound/load_sound"); snd.pos = [37, 368]; graph.add(snd);
         var gen = LiteGraph.createNode("Video/generate");   gen.pos = [298, 73]; graph.add(gen);
         var up = LiteGraph.createNode("Upscaling/upscale_ai");  up.pos = [663, 74]; graph.add(up);
-        var save = LiteGraph.createNode("Preview Save/save");      save.pos = [943, 82]; graph.add(save);
+        var save = LiteGraph.createNode("Preview Save/save");      save.pos = [675, 209]; save.size = [719, 449]; graph.add(save);
         var gsnd = LiteGraph.createNode("Sound/sound");     gsnd.pos = [40, 510]; graph.add(gsnd); // parked, unwired
         img.connect(0, gen, 0);   // Load Image -> Generate (image input, slot 0)
         snd.connect(0, gen, 1);   // Load Sound -> Generate (audio input, slot 1)
