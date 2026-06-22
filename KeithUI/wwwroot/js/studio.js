@@ -251,7 +251,7 @@
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
         addMultilineText(this, "prompt", "", 5);
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
-        this.addWidget("number", "duration", 20, null, { min: 1, max: 30, step: 10, precision: 0 });
+        this.addWidget("combo", "duration", 20, null, { values: [5, 6, 8, 10, 12, 14, 16, 18, 20] });  // LTX-allowed seconds
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
         this.size = this.computeSize();          // size to fit every control inside the border
         if (this.size[0] < 320) this.size[0] = 320;
