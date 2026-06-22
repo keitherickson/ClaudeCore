@@ -457,10 +457,8 @@
     // --- Run ---------------------------------------------------------------
     var statusEl = document.getElementById("status");
     var runBtn = document.getElementById("run-btn");
-    var resultEl = document.getElementById("result");
-    var resultVideo = document.getElementById("result-video");
+    var resultEl = document.getElementById("result");   // the "Run log" panel
     var resultLog = document.getElementById("result-log");
-    var resultDl = document.getElementById("result-dl");
     document.getElementById("result-close").addEventListener("click", function () { resultEl.classList.remove("show"); });
 
     function handleEvent(ev) {
@@ -490,15 +488,10 @@
                 resultEl.classList.add("show");
                 break;
             case "done":
-                if (ev.ok && ev.finalVideo) {
-                    var url = "/Studio/Preview?path=" + encodeURIComponent(ev.finalVideo);
-                    resultVideo.src = url; resultDl.href = url; resultEl.classList.add("show");
-                    statusEl.textContent = "Done.";
-                } else if (ev.ok) {
-                    statusEl.textContent = "Finished (no video output).";
-                } else {
-                    statusEl.textContent = "Error: " + (ev.error || "failed");
-                }
+                // The clip plays in the Preview Save node (via node-result); the panel is just the log now.
+                if (ev.ok && ev.finalVideo) statusEl.textContent = "Done.";
+                else if (ev.ok) statusEl.textContent = "Finished (no video output).";
+                else statusEl.textContent = "Error: " + (ev.error || "failed");
                 break;
         }
         lgcanvas.setDirty(true, true);

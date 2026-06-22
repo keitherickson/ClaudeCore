@@ -24,16 +24,18 @@
         button.ghost { background: #3a3a3a; }
         button.ghost:hover { background: #454545; }
         #status { color: #9a9a9a; font-size: 12px; }
-        #graph { position: fixed; top: 44px; left: 0; right: 0; bottom: 0; }
-        #result { position: fixed; right: 14px; bottom: 14px; width: 360px; z-index: 20;
+        #graph { position: fixed; top: 44px; left: 0; right: 0; bottom: 26px; }
+        #footer { position: fixed; left: 0; right: 0; bottom: 0; height: 26px; z-index: 10;
+            display: flex; align-items: center; gap: 14px; padding: 0 14px; box-sizing: border-box;
+            background: #232323; border-top: 1px solid #000; font-size: 12px; color: #9a9a9a; }
+        #result { position: fixed; right: 14px; bottom: 40px; width: 360px; z-index: 20;
             background: #232323; border: 1px solid #000; border-radius: 8px; padding: 10px;
             box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; }
         #result.show { display: block; }
         #result header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; }
         #result header .ttl { font-weight: 600; flex: 1; }
         #result header .x { cursor: pointer; color: #9a9a9a; }
-        #result video { width: 100%; border-radius: 5px; background: #000; }
-        #result .log { margin-top: 8px; max-height: 130px; overflow: auto; font: 11px/1.5 ui-monospace, monospace;
+        #result .log { max-height: 200px; overflow: auto; font: 11px/1.5 ui-monospace, monospace;
             color: #b9b9b9; white-space: pre-wrap; }
     </style>
 </head>
@@ -53,15 +55,45 @@
 
     <div id="result">
         <header>
-            <span class="ttl">Result</span>
-            <a id="result-dl" download href="#" style="font-size:12px;">download</a>
+            <span class="ttl">Run log</span>
             <span class="x" id="result-close">✕</span>
         </header>
-        <video id="result-video" controls></video>
         <div class="log" id="result-log"></div>
+    </div>
+
+    <div id="footer">
+        <span id="sysstats" title="Live GPU / CPU / RAM (nvidia-smi)">GPU: …</span>
     </div>
 
     <script src="~/lib/litegraph/litegraph.js" asp-append-version="true"></script>
     <script src="~/js/studio.js" asp-append-version="true"></script>
+
+    <!-- Live system readout in the footer (mirrors the KeithVision footer). -->
+    <script>
+    (function () {
+        var el = document.getElementById("sysstats");
+        if (!el) return;
+        async function poll() {
+            try {
+                var d = await (await fetch("/Studio/SystemStats")).json();
+                var g = d.gpu || {}, c = d.cpu || {}, mem = d.memory || {};
+                var parts = [];
+                if (g.available) {
+                    var vram = (g.vramUsedMb != null && g.vramTotalMb != null) ? (g.vramUsedMb + " / " + g.vramTotalMb + " MB") : "";
+                    var util = g.utilizationPct != null ? (g.utilizationPct + "%") : "";
+                    var temp = g.temperatureC != null ? (g.temperatureC + "°C") : "";
+                    parts.push("GPU: " + [g.name, vram, util, temp].filter(Boolean).join(" · "));
+                } else { parts.push("GPU: n/a"); }
+                if (c && c.utilizationPct != null) parts.push("CPU: " + c.utilizationPct + "%");
+                if (mem && mem.available && mem.totalMb) {
+                    var gb = function (mb) { return (mb / 1024).toFixed(1); };
+                    parts.push("RAM: " + gb(mem.usedMb) + " / " + gb(mem.totalMb) + " GB");
+                }
+                el.textContent = parts.join("   |   ");
+            } catch { el.textContent = "GPU: n/a"; }
+        }
+        poll(); setInterval(poll, 1000);
+    })();
+    </script>
 </body>
 </html>

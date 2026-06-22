@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using KeithUI.Services;
 using KeithVision.Services;
@@ -14,12 +16,14 @@ public class StudioController : Controller
 {
     private readonly GraphExecutor _executor;
     private readonly LtxVideoService _ltx;   // for the output-dir guard on Preview
+    private readonly SystemStatsService _stats;   // footer GPU/CPU/RAM readout
     private readonly ILogger<StudioController> _logger;
 
-    public StudioController(GraphExecutor executor, LtxVideoService ltx, ILogger<StudioController> logger)
+    public StudioController(GraphExecutor executor, LtxVideoService ltx, SystemStatsService stats, ILogger<StudioController> logger)
     {
         _executor = executor;
         _ltx = ltx;
+        _stats = stats;
         _logger = logger;
     }
 
@@ -93,6 +97,66 @@ public class StudioController : Controller
         var ext = Path.GetExtension(full).ToLowerInvariant();
         var mime = ext == ".png" ? "image/png" : ext is ".jpg" or ".jpeg" ? "image/jpeg" : ext == ".webp" ? "image/webp" : "application/octet-stream";
         return PhysicalFile(full, mime);
+    }
+
+    /// <summary>Live GPU + CPU + RAM snapshot for the footer (mirrors KeithVision's /Admin/SystemStats).</summary>
+    [HttpGet]
+    public async Task<IActionResult> SystemStats(CancellationToken ct)
+        => Json(new { gpu = await GetGpuAsync(ct), cpu = _stats.Cpu, memory = _stats.Memory });
+
+    /// <summary>Live GPU stats from nvidia-smi (null fields if unavailable).</summary>
+    private static async Task<object> GetGpuAsync(CancellationToken ct)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "nvidia-smi",
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            foreach (var a in new[]
+            {
+                "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            }) psi.ArgumentList.Add(a);
+
+            using var proc = Process.Start(psi)!;
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(5));
+            string outText;
+            try
+            {
+                outText = await proc.StandardOutput.ReadToEndAsync(cts.Token);
+                await proc.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                return new { available = false, error = "nvidia-smi timed out" };
+            }
+
+            var line = outText.Split('\n').FirstOrDefault(l => !string.IsNullOrWhiteSpace(l));
+            if (line is null) return new { available = false, error = "no GPU reported" };
+
+            var p = line.Split(',').Select(s => s.Trim()).ToArray();
+            int? ParseInt(int i) => i < p.Length && int.TryParse(p[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+            return new
+            {
+                available = true,
+                name = p.Length > 0 ? p[0] : null,
+                vramUsedMb = ParseInt(1),
+                vramTotalMb = ParseInt(2),
+                utilizationPct = ParseInt(3),
+                temperatureC = ParseInt(4),
+                error = (string?)null,
+            };
+        }
+        catch (Exception ex)
+        {
+            return new { available = false, error = ex.Message };
+        }
     }
 
     [HttpGet]
