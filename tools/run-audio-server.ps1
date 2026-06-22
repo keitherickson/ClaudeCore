@@ -39,6 +39,19 @@ foreach ($p in @($Python, $Server)) {
     }
 }
 
+# The requested GPU may not exist yet — GpuIndex defaults to 1 (the planned 4090),
+# but on the current single-GPU box only index 0 is present. Pinning to a missing
+# index hides every CUDA device and the model silently loads on CPU (painfully slow
+# — a long clip then blows the request timeout). Fall back to GPU 0 in that case;
+# once the 4090 is installed the index is valid and used as-is.
+try {
+    $gpuCount = (@(& nvidia-smi --query-gpu=index --format=csv,noheader 2>$null)).Count
+    if ($gpuCount -gt 0 -and $Gpu -ge $gpuCount) {
+        Write-Host "GPU $Gpu not present ($gpuCount GPU(s) detected); falling back to GPU 0" -ForegroundColor Yellow
+        $Gpu = 0
+    }
+} catch { }
+
 $env:AUDIO_PORT           = "$Port"
 $env:CUDA_DEVICE_ORDER    = "PCI_BUS_ID" # stable index across mixed 5090/4090
 $env:CUDA_VISIBLE_DEVICES = "$Gpu"   # pin the audio model to this GPU only
