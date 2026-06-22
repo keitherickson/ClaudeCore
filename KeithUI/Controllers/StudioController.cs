@@ -86,6 +86,31 @@ public class StudioController : Controller
         return Json(new { ok = true, path, name = Path.GetFileName(path) });
     }
 
+    /// <summary>Stages an uploaded video clip (for the Load Video node) and returns its path.</summary>
+    [HttpPost]
+    [RequestSizeLimit(2_147_483_648)]                              // 2 GB — source clips can be large
+    [RequestFormLimits(MultipartBodyLengthLimit = 2_147_483_648)]  // raise the default 128 MB multipart cap too
+    public async Task<IActionResult> UploadVideo(IFormFile? video, CancellationToken ct)
+    {
+        if (video is not { Length: > 0 })
+            return BadRequest(new { ok = false, error = "No video." });
+        var path = await _ltx.StageVideoAsync(video, ct);
+        return Json(new { ok = true, path, name = Path.GetFileName(path) });
+    }
+
+    /// <summary>Serves a staged video for the Load Video node's poster-frame thumbnail (guarded to the input tree).</summary>
+    [HttpGet]
+    public IActionResult InputVideo(string path)
+    {
+        var root = Path.GetFullPath(_ltx.InputDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(path);
+        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(full))
+            return NotFound();
+        var ext = Path.GetExtension(full).ToLowerInvariant();
+        var mime = ext == ".webm" ? "video/webm" : ext == ".mov" ? "video/quicktime" : "video/mp4";
+        return PhysicalFile(full, mime, enableRangeProcessing: true);
+    }
+
     /// <summary>Serves a staged image for the node thumbnail (guarded to the input tree).</summary>
     [HttpGet]
     public IActionResult Image(string path)

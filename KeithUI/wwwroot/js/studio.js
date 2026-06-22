@@ -26,6 +26,24 @@
         LiteGraph.registerNodeType(type, Node);
     }
 
+    // Poster-frame thumbnail for the Load Video node: decode one frame of the
+    // staged clip into an off-screen <video> and hand it to the node to draw
+    // (drawImage accepts a video element). Only commit the element once a frame
+    // has actually decoded (the "seeked" event), so onDrawBackground never calls
+    // drawImage on an empty video. Shared by the node's upload path and the
+    // post-load rehydration (reattachThumbnails).
+    function attachVideoThumb(node, path) {
+        node._vid = null;
+        var v = document.createElement("video");
+        v.muted = true; v.preload = "auto"; v.playsInline = true;
+        v.src = "/Studio/InputVideo?path=" + encodeURIComponent(path);
+        v.addEventListener("loadeddata", function () {
+            try { v.currentTime = Math.min(0.1, (v.duration || 2) / 2); } catch (e) { /* ignore */ }
+        });
+        v.addEventListener("seeked", function () { node._vid = v; node.setDirtyCanvas(true, true); });
+        node._vidLoading = v;   // keep a ref so it isn't GC'd before it decodes
+    }
+
     // A tall, multi-line text widget. LiteGraph's stock "text" widget is a single
     // 20px line that truncates at 30 chars; we want a big prompt box. Using a custom
     // type routes drawing + clicks to the default path, so we draw a multi-row box
@@ -245,6 +263,66 @@
             ctx.textAlign = "left";
         };
         this.size = [220, 78];
+    });
+
+    // Load an existing video clip (skip generation) to feed Upscale / Speed Up / etc.
+    define("Video/load_video", "Load Video", "#454", function () {
+        var self = this;
+        this.addOutput("video", LiteGraph.VIDEO);
+        var fileW = this.addWidget("text", "file", "");
+        fileW.type = "hidden"; fileW.computeSize = function () { return [0, 0]; };
+
+        this.addWidget("button", "📁 upload", null, function () {
+            var inp = document.createElement("input");
+            inp.type = "file"; inp.accept = "video/*";
+            inp.onchange = async function () {
+                if (!inp.files || !inp.files[0]) return;
+                self._vid = null; self.title = "Load Video — uploading…"; self.setDirtyCanvas(true, true);
+                try {
+                    var fd = new FormData(); fd.append("video", inp.files[0]);
+                    var d = await (await fetch("/Studio/UploadVideo", { method: "POST", body: fd })).json();
+                    if (d.ok) {
+                        fileW.value = d.path; self._vidName = inp.files[0].name;
+                        self.title = "Load Video";
+                        attachVideoThumb(self, d.path);
+                    } else { self.title = "Load Video — failed"; }
+                } catch (e) { self.title = "Load Video — error"; }
+                self.setDirtyCanvas(true, true);
+            };
+            inp.click();
+        });
+        // Re-attach the thumbnail after a graph reload (value persisted).
+        if (fileW.value) { this._vidName = fileW.value.split(/[\\/]/).pop(); attachVideoThumb(this, fileW.value); }
+
+        // Preview band on top, widgets below it (same layout as Load Image).
+        var VID_TOP = 28, VID_H = 120;
+        this.widgets_start_y = VID_TOP + VID_H + 8;
+        this.onDrawBackground = function (ctx) {
+            if (this.flags.collapsed) return;
+            var pad = 8, boxW = this.size[0] - pad * 2;
+            ctx.fillStyle = "#1f1f1f"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(pad, VID_TOP, boxW, VID_H, 6); else ctx.rect(pad, VID_TOP, boxW, VID_H);
+            ctx.fill(); ctx.stroke();
+            var v = this._vid;
+            if (v && v.videoWidth) {
+                var w = boxW - 4, h = w * (v.videoHeight / v.videoWidth);
+                if (h > VID_H - 4) { h = VID_H - 4; w = h * (v.videoWidth / v.videoHeight); }
+                var dx = (this.size[0] - w) / 2, dy = VID_TOP + (VID_H - h) / 2;
+                try { ctx.drawImage(v, dx, dy, w, h); } catch (e) { /* frame not ready */ }
+                // play-triangle badge so it reads as a video, not a still
+                ctx.fillStyle = "rgba(0,0,0,0.45)";
+                ctx.beginPath(); ctx.arc(this.size[0] / 2, dy + h / 2, 14, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = "#fff"; ctx.beginPath();
+                ctx.moveTo(this.size[0] / 2 - 5, dy + h / 2 - 7);
+                ctx.lineTo(this.size[0] / 2 - 5, dy + h / 2 + 7);
+                ctx.lineTo(this.size[0] / 2 + 8, dy + h / 2); ctx.closePath(); ctx.fill();
+            } else {
+                ctx.fillStyle = "#666"; ctx.font = "11px Arial"; ctx.textAlign = "center";
+                ctx.fillText(this._vidName || "no video", this.size[0] / 2, VID_TOP + VID_H / 2 + 4); ctx.textAlign = "left";
+            }
+        };
+        this.size = [220, 232];
     });
 
     // --- Generate ----------------------------------------------------------
@@ -550,6 +628,11 @@
                 if (!sndW || !sndW.value)
                     issues.push({ node: n.id, msg: "Load Sound has no file — click 📁 upload to pick an audio file." });
             }
+            if (n.type === "Video/load_video") {
+                var vidW = n.widgets && n.widgets[0];
+                if (!vidW || !vidW.value)
+                    issues.push({ node: n.id, msg: "Load Video has no file — click 📁 upload to pick a video." });
+            }
             if (n.type === "Sound/sound") {
                 var sp = n.widgets && n.widgets[0] && n.widgets[0].value;
                 if (!sp || !String(sp).trim())
@@ -609,12 +692,16 @@
     // in-constructor re-attach sees an empty path. Do it here once values exist.
     function reattachThumbnails() {
         graph._nodes.forEach(function (n) {
-            if (n.type !== "Image/load_image") return;
             var fileW = n.widgets && n.widgets[0];
             if (!fileW || !fileW.value) return;
-            n._img = new Image();
-            n._img.onload = function () { n.setDirtyCanvas(true, true); };
-            n._img.src = "/Studio/Image?path=" + encodeURIComponent(fileW.value);
+            if (n.type === "Image/load_image") {
+                n._img = new Image();
+                n._img.onload = function () { n.setDirtyCanvas(true, true); };
+                n._img.src = "/Studio/Image?path=" + encodeURIComponent(fileW.value);
+            } else if (n.type === "Video/load_video") {
+                n._vidName = String(fileW.value).split(/[\\/]/).pop();
+                attachVideoThumb(n, fileW.value);
+            }
         });
     }
 

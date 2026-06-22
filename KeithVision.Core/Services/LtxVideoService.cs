@@ -98,6 +98,26 @@ public sealed class LtxVideoService
         return path;
     }
 
+    /// <summary>
+    /// Saves an uploaded video file to a server-readable path (for upscale / speed-up
+    /// of an existing clip, without generating one) and returns it. The original
+    /// extension is preserved so downstream tools (ffmpeg / Maxine) can sniff the container.
+    /// </summary>
+    public async Task<string> StageVideoAsync(IFormFile video, CancellationToken ct = default)
+    {
+        Directory.CreateDirectory(_options.InputDirectory);
+        var ext = Path.GetExtension(video.FileName);
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".mp4";
+
+        var path = Path.Combine(
+            _options.InputDirectory,
+            $"video_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}{ext}");
+
+        await using var fs = File.Create(path);
+        await video.CopyToAsync(fs, ct);
+        return path;
+    }
+
     public async Task<VideoResult> GenerateAsync(GenerateVideoRequest request, CancellationToken ct = default)
     {
         var response = await Active().GenerateAsync(request, ct);
