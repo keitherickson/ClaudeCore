@@ -757,6 +757,29 @@
     var layoutSelect = document.getElementById("layout-select");
     var layoutSaveBtn = document.getElementById("layout-save-btn");
     var layoutDeleteBtn = document.getElementById("layout-delete-btn");
+    var savedLayouts = [];   // last-fetched [{ name, savedUtc }] — used for the overwrite check
+
+    // Mirror of LayoutStore.Slug on the server: lowercase, keep [a-z0-9], map
+    // space/dash/underscore to '-', drop the rest, trim '-'. Two names with the
+    // same slug map to the same file, so saving one overwrites the other — this
+    // lets the Save button warn before that happens.
+    function layoutSlug(name) {
+        var out = "", s = (name || "").trim().toLowerCase();
+        for (var i = 0; i < s.length; i++) {
+            var ch = s[i];
+            if (ch >= "a" && ch <= "z" || ch >= "0" && ch <= "9") out += ch;
+            else if (ch === " " || ch === "-" || ch === "_") out += "-";
+        }
+        return out.replace(/^-+|-+$/g, "");
+    }
+    // The display name of an existing layout that the given name would overwrite, or null.
+    function existingLayoutFor(name) {
+        var slug = layoutSlug(name);
+        if (!slug) return null;
+        for (var i = 0; i < savedLayouts.length; i++)
+            if (layoutSlug(savedLayouts[i].name) === slug) return savedLayouts[i].name;
+        return null;
+    }
 
     // "2026-06-23T14:12:…Z" -> " (saved Jun 23, 2:14 PM)" in the viewer's locale.
     // Today's saves show the time; older ones just the date. Blank if unparseable.
@@ -777,6 +800,7 @@
     async function refreshLayouts(selectName) {
         try {
             var list = await (await fetch("/Studio/Layouts")).json();
+            savedLayouts = list;               // cache for the overwrite check
             layoutSelect.options.length = 1;   // keep the "— saved layouts —" placeholder
             list.forEach(function (l) {
                 var o = document.createElement("option");
@@ -813,6 +837,8 @@
     layoutSaveBtn.addEventListener("click", async function () {
         var name = (window.prompt("Save layout as:", layoutSelect.value || "") || "").trim();
         if (!name) return;
+        var clash = existingLayoutFor(name);   // warn before clobbering an existing layout
+        if (clash && !window.confirm("A layout named “" + clash + "” already exists. Overwrite it?")) return;
         try {
             var resp = await fetch("/Studio/SaveLayout", {
                 method: "POST",
