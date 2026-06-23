@@ -123,6 +123,44 @@ public sealed class VideoSpeedService
     }
 
     /// <summary>
+    /// Muxes the audio track from <paramref name="audioPath"/> onto
+    /// <paramref name="videoPath"/>, writing a new file in the output dir and
+    /// returning its path. The video stream is copied untouched (no re-encode);
+    /// the audio is encoded to AAC and capped to the video's duration so the clip
+    /// length is driven by the video — audio longer than the video is trimmed,
+    /// shorter leaves a silent tail. Any audio already on the video is dropped and
+    /// replaced. Backs the studio "Add Audio" node.
+    /// </summary>
+    public async Task<string> MuxAudioAsync(string videoPath, string audioPath, CancellationToken ct = default)
+    {
+        if (!File.Exists(videoPath)) throw new FileNotFoundException("Video to dub was not found.", videoPath);
+        if (!File.Exists(audioPath)) throw new FileNotFoundException("Audio to add was not found.", audioPath);
+
+        Directory.CreateDirectory(_o.OutputDirectory);
+        var outPath = Path.Combine(_o.OutputDirectory, $"studio_dub_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.mp4");
+
+        var args = new List<string>
+        {
+            "-y", "-hide_banner", "-loglevel", "error",
+            "-i", videoPath,   // 0: video (its own audio, if any, is dropped)
+            "-i", audioPath,   // 1: the audio track to apply
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "copy", "-c:a", "aac",
+        };
+        // Cap the output to the video's length so the video drives the clip duration.
+        var info = await TryGetMediaInfoAsync(videoPath, ct);
+        if (info is { } i && i.DurationSec > 0)
+            args.AddRange(new[] { "-t", i.DurationSec.ToString("0.###", CultureInfo.InvariantCulture) });
+        args.AddRange(new[] { "-movflags", "+faststart", outPath });
+
+        _log.LogInformation("Muxing audio {Audio} onto {Video} -> {Out}", audioPath, videoPath, outPath);
+        var (exit, stderr) = await RunFfmpegAsync(args, ct);
+        if (exit != 0 || !File.Exists(outPath))
+            throw new InvalidOperationException($"ffmpeg audio mux failed (exit {exit}).\n{stderr}".Trim());
+        return outPath;
+    }
+
+    /// <summary>
     /// Maxine's VideoEffectsApp only accepts H.264 input ("Filters only target
     /// H264 videos, not HEVC"). If <paramref name="inputPath"/> isn't H.264,
     /// transcode a temp H.264 copy (video-only — Maxine drops audio anyway) and

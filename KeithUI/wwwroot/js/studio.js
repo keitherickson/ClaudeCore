@@ -378,6 +378,16 @@
         this.size = [200, 60];
     });
 
+    // Lay a sound track over a finished clip: copies the video through and muxes
+    // the audio onto it (capped to the video's length). Unlike Generate Video's
+    // audio input — which conditions generation — this just dubs an existing clip.
+    define("Sound/add_audio", "Add Audio", "#553", function () {
+        this.addInput("video", LiteGraph.VIDEO);
+        this.addInput("audio", LiteGraph.AUDIO);
+        this.addOutput("video", LiteGraph.VIDEO);
+        this.size = [200, 60];
+    });
+
     // --- Sink --------------------------------------------------------------
     // The result pane: a "filename" box + a download button, with the result clip
     // playing inline (an HTML <video> floated over the black preview area once a
@@ -582,6 +592,7 @@
         "Upscaling/upscale_ai": { slot: "video", label: "Upscale (AI)" },
         "Upscaling/upscale_maxine": { slot: "video", label: "Upscale (MAXINE)" },
         "Speed/speed": { slot: "video", label: "Speed Up" },
+        "Sound/add_audio": { slot: "video", label: "Add Audio" },
     };
     function isLinked(n, slotName) {
         if (!n.inputs) return false;
@@ -618,6 +629,8 @@
             var req = REQUIRED_INPUT[n.type];
             if (req && !isLinked(n, req.slot))
                 issues.push({ node: n.id, msg: req.label + " has no " + req.slot + " input connected — wire a video into it." });
+            if (n.type === "Sound/add_audio" && !isLinked(n, "audio"))
+                issues.push({ node: n.id, msg: "Add Audio has no audio input — wire a sound (Generate/Load Sound) into it." });
             if (n.type === "Image/load_image") {
                 var fileW = n.widgets && n.widgets[0];
                 if (!fileW || !fileW.value)

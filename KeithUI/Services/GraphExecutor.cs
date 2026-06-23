@@ -277,6 +277,14 @@ public sealed class GraphExecutor
                 await log($"Speed Up [{factor}x]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
             }
+            case "Sound/add_audio":
+            {
+                if (vidIn is null) { await log("Add Audio: no video input — skipped"); return null; }
+                if (audIn is null) { await log("Add Audio: no audio input — passing the video through unchanged"); return vidIn; }
+                var dubbed = await _speed.MuxAudioAsync(vidIn, audIn, ct);
+                await log($"Add Audio: {Path.GetFileName(audIn)} -> {Path.GetFileName(dubbed)}");
+                return dubbed;
+            }
             case "Preview Save/save":
                 await log($"Save: {(vidIn is null ? "(no input)" : Path.GetFileName(vidIn))}");
                 return null;
