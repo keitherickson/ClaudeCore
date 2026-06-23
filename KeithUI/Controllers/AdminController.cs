@@ -80,6 +80,16 @@ public class AdminController : Controller
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
         var app = new { version, machine = Environment.MachineName, startedUtc = proc.StartTime.ToUniversalTime(), uptimeSeconds = (long)(DateTime.Now - proc.StartTime).TotalSeconds };
 
+        // Live generation progress (best-effort — null/idle when nothing is running).
+        object? generation = null;
+        try
+        {
+            var p = await _ltx.GetProgressAsync(ct);
+            if (p is not null)
+                generation = new { status = p.Status, phase = p.Phase, progress = p.Progress, currentStep = p.CurrentStep, totalSteps = p.TotalSteps };
+        }
+        catch { /* progress is best-effort */ }
+
         return Json(new
         {
             ok = true,
@@ -92,6 +102,8 @@ public class AdminController : Controller
             maxine = new { ready = maxineReady, error = maxineProblem },
             ffmpeg = new { ready = ffmpegReady, error = ffmpegProblem, path = _speed.FfmpegPath },
             gpu = await GetGpuAsync(ct),
+            gpuProcs = await GetGpuProcsAsync(ct),
+            generation,
             cpu = _stats.Cpu,
             memory = _stats.Memory,
             app,
@@ -100,6 +112,43 @@ public class AdminController : Controller
             layouts = _layouts.List().Select(l => new { name = l.Name, savedUtc = l.SavedUtc }),
         });
     }
+
+    /// <summary>Lists recent generated clips in the output dir (newest first) for the gallery.</summary>
+    [HttpGet]
+    public IActionResult Outputs(int take = 24)
+    {
+        var dir = _ltx.OutputDirectory;
+        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+            return Json(new { ok = true, items = Array.Empty<object>() });
+
+        var items = new DirectoryInfo(dir)
+            .EnumerateFiles("*.*", SearchOption.TopDirectoryOnly)
+            .Where(f => f.Extension is ".mp4" or ".webm" or ".mov")
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .Take(Math.Clamp(take, 1, 200))
+            .Select(f => new { name = f.Name, path = f.FullName, sizeMb = Math.Round(f.Length / 1024d / 1024, 1), modifiedUtc = f.LastWriteTimeUtc })
+            .ToList();
+        return Json(new { ok = true, items });
+    }
+
+    public sealed record DeleteOutputRequest(string Path);
+
+    /// <summary>Deletes a single generated clip (path-guarded to the output dir).</summary>
+    [HttpPost]
+    public IActionResult DeleteOutput([FromBody] DeleteOutputRequest? req)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.Path))
+            return BadRequest(new { ok = false, error = "A path is required." });
+
+        var root = System.IO.Path.GetFullPath(_ltx.OutputDirectory).TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+        var full = System.IO.Path.GetFullPath(req.Path);
+        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(full))
+            return BadRequest(new { ok = false, error = "Not an output-dir file." });
+
+        try { System.IO.File.Delete(full); return Json(new { ok = true }); }
+        catch (Exception ex) { return Json(new { ok = false, error = ex.Message }); }
+    }
+
 
     public sealed record SetModelRequest(string Id);
 
@@ -240,6 +289,55 @@ public class AdminController : Controller
         catch (Exception ex)
         {
             return new { available = false, error = ex.Message };
+        }
+    }
+
+    /// <summary>Per-process VRAM from nvidia-smi (so you can see what's holding the GPU). Empty on failure.</summary>
+    private static async Task<object> GetGpuProcsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "nvidia-smi",
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            foreach (var a in new[] { "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits" })
+                psi.ArgumentList.Add(a);
+
+            using var proc = Process.Start(psi)!;
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(5));
+            string outText;
+            try
+            {
+                outText = await proc.StandardOutput.ReadToEndAsync(cts.Token);
+                await proc.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                return Array.Empty<object>();
+            }
+
+            var rows = new List<(string Pid, string Name, int? UsedMb)>();
+            foreach (var raw in outText.Split('\n'))
+            {
+                var line = raw.Trim();
+                if (line.Length == 0) continue;
+                var p = line.Split(',').Select(s => s.Trim()).ToArray();
+                if (p.Length < 3) continue;
+                int? usedMb = int.TryParse(p[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+                rows.Add((p[0], System.IO.Path.GetFileName(p[1]), usedMb));
+            }
+            return rows.OrderByDescending(r => r.UsedMb ?? 0)
+                       .Select(r => new { pid = r.Pid, name = r.Name, usedMb = r.UsedMb })
+                       .ToList();
+        }
+        catch
+        {
+            return Array.Empty<object>();
         }
     }
 

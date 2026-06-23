@@ -44,6 +44,15 @@
         .list { max-height: 220px; overflow: auto; }
         .list .row .x { cursor: pointer; color: #9a6a6a; margin-left: 8px; }
         .list .row .x:hover { color: #e05555; }
+        .gen { margin-top: 10px; padding: 8px 10px; background: #1d2a22; border: 1px solid #244; border-radius: 6px; font-size: 12px; }
+        .gen.idle { background: #262626; border-color: #333; color: #888; }
+        .gallery { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+        .clip { background: #1b1b1b; border: 1px solid #000; border-radius: 8px; overflow: hidden; }
+        .clip video { width: 100%; display: block; background: #000; aspect-ratio: 16/9; object-fit: contain; }
+        .clip .meta { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11px; }
+        .clip .meta .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .clip .meta .sz { color: #888; margin-left: auto; white-space: nowrap; }
+        .clip .meta .x { cursor: pointer; color: #9a6a6a; } .clip .meta .x:hover { color: #e05555; }
         #toast { position: fixed; right: 16px; bottom: 16px; max-width: 420px; background: #232323;
             border: 1px solid #000; border-radius: 8px; padding: 10px 12px; font-size: 12px;
             box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; white-space: pre-wrap; }
@@ -65,6 +74,7 @@
         <section class="panel" id="p-diag"><h2>Diagnostics</h2><div class="body muted">loading…</div></section>
         <section class="panel" id="p-storage"><h2>Storage</h2><div class="body muted">loading…</div></section>
         <section class="panel" id="p-layouts"><h2>Saved layouts</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-outputs" style="grid-column: 1 / -1;"><h2>Recent outputs</h2><div class="body muted">loading…</div></section>
     </main>
 
     <div id="toast"></div>
@@ -128,6 +138,15 @@
             h += '<div class="row">' + dot(backendState(d.audio)) + '<span class="k">Stable Audio</span>'
                + '<span class="v">' + (d.audio.reachable ? "model loaded" : d.audio.portListening ? "starting" : "stopped") + ' · :' + d.audio.port + '</span></div>';
             if (d.audio.error) h += '<div class="err">' + esc(d.audio.error) + '</div>';
+            // Live generation strip — only meaningful while a clip is rendering.
+            var g = d.generation;
+            if (g && g.status && g.status !== "idle") {
+                var step = (g.currentStep != null && g.totalSteps) ? " · step " + g.currentStep + "/" + g.totalSteps : "";
+                h += '<div class="gen">▶ ' + esc(g.status) + (g.phase ? " — " + esc(g.phase) : "") + " · " + (g.progress || 0) + "%" + step
+                   + '<div class="bar"><span style="width:' + Math.max(0, Math.min(100, g.progress || 0)) + '%"></span></div></div>';
+            } else {
+                h += '<div class="gen idle">No generation running.</div>';
+            }
             h += '<div class="actions">'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/RestartLtx\', null, \'Restart LTX\')">Restart LTX</button>'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/StartAudio\', null, \'Start audio\')">Start audio</button>'
@@ -170,6 +189,13 @@
             }
             if (c && c.utilizationPct != null) h += row("CPU", c.utilizationPct + "%");
             if (m && m.available && m.totalMb) h += row("RAM", gb(m.usedMb) + " / " + gb(m.totalMb) + " GB");
+            var procs = d.gpuProcs || [];
+            if (procs.length) {
+                h += '<div class="muted" style="margin-top:8px;">VRAM by process</div>';
+                procs.forEach(function (pr) {
+                    h += row(esc(pr.name) + ' <span class="muted">#' + esc(pr.pid) + '</span>', (pr.usedMb != null ? pr.usedMb + " MB" : "—"));
+                });
+            }
             body("p-system").innerHTML = h;
         }
 
@@ -229,6 +255,47 @@
             action("/Studio/DeleteLayout", { name: name }, "Delete layout “" + name + "”");
         };
 
+        function ageOf(utc) {
+            if (!utc) return "";
+            var secs = Math.max(0, (Date.now() - new Date(utc).getTime()) / 1000);
+            if (secs < 90) return Math.round(secs) + "s ago";
+            if (secs < 5400) return Math.round(secs / 60) + "m ago";
+            if (secs < 172800) return Math.round(secs / 3600) + "h ago";
+            return Math.round(secs / 86400) + "d ago";
+        }
+        // Outputs render from their own endpoint (heavier list, refreshed on the same beat).
+        // Only rebuild the DOM when the set actually changes, so playing videos aren't
+        // reloaded out from under the user every poll.
+        var _outSig = null;
+        async function renderOutputs() {
+            try {
+                var d = await (await fetch("/Admin/Outputs")).json();
+                var items = (d && d.items) || [];
+                var sig = items.map(function (it) { return it.path + "|" + it.sizeMb + "|" + it.modifiedUtc; }).join(";");
+                if (sig === _outSig) return;   // unchanged — leave the gallery (and any playback) alone
+                _outSig = sig;
+                if (!items.length) { body("p-outputs").innerHTML = '<div class="muted">No generated clips yet.</div>'; return; }
+                var h = '<div class="gallery">';
+                items.forEach(function (it) {
+                    var src = "/Studio/Preview?path=" + encodeURIComponent(it.path);
+                    var arg = "'" + it.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+                    h += '<div class="clip">'
+                       + '<video preload="metadata" src="' + src + '#t=0.1" controls></video>'
+                       + '<div class="meta"><span class="nm" title="' + esc(it.name) + '">' + esc(it.name) + '</span>'
+                       + '<span class="sz">' + it.sizeMb + ' MB · ' + ageOf(it.modifiedUtc) + '</span>'
+                       + '<span class="x" title="Delete" onclick="_adminDeleteOutput(' + arg + ')">🗑</span></div></div>';
+                });
+                h += '</div>';
+                body("p-outputs").innerHTML = h;
+            } catch (e) {
+                body("p-outputs").innerHTML = '<div class="err">Could not list outputs.</div>';
+            }
+        }
+        window._adminDeleteOutput = function (path) {
+            if (!window.confirm("Delete this clip?\n" + path)) return;
+            action("/Admin/DeleteOutput", { path: path }, "Delete output");
+        };
+
         async function refresh() {
             if (busy) return;
             try {
@@ -239,6 +306,7 @@
             } catch (e) {
                 el("updated").textContent = "status fetch failed";
             }
+            renderOutputs();
         }
 
         refresh();
