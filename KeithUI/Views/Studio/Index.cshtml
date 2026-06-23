@@ -28,6 +28,8 @@
         select.ghost:hover { background: #454545; }
         #toolbar .divider { width: 1px; height: 22px; background: #000; margin: 0 2px; }
         #status { color: #9a9a9a; font-size: 12px; }
+        #toolbar a.back { color: #9ab; text-decoration: none; font-size: 13px; margin-right: 6px; }
+        #toolbar a.back:hover { color: #cde; }
         #graph { position: fixed; top: 44px; left: 0; right: 0; bottom: 26px; }
         #footer { position: fixed; left: 0; right: 0; bottom: 0; height: 26px; z-index: 10;
             display: flex; align-items: center; gap: 14px; padding: 0 14px; box-sizing: border-box;
@@ -59,6 +61,7 @@
         <button id="layout-delete-btn" class="ghost" title="Delete the selected layout">🗑</button>
         <span id="status"></span>
         <span class="spacer"></span>
+        <a href="/Admin" class="back" title="Backend status, model switch, diagnostics">⚙ Admin</a>
         <span style="color:#6a6a6a;font-size:12px;">right-click canvas to add nodes · drag ports to wire</span>
     </div>
     <canvas id="graph"></canvas>
