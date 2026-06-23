@@ -388,6 +388,27 @@
         this.size = [200, 60];
     });
 
+    // --- Groups ------------------------------------------------------------
+    // Run a saved layout (its on-disk JSON is the "config file") as a self-contained
+    // group of nodes, emitting that sub-pipeline's result as this node's VIDEO output.
+    // Pick which layout from the combo; ↻ refreshes the list from the server.
+    define("Groups/run_group", "Run Group", "#446", function () {
+        var self = this;
+        this.addOutput("video", LiteGraph.VIDEO);
+        var layoutW = this.addWidget("combo", "layout", "", null, { values: [""] });
+        function loadNames() {
+            fetch("/Studio/Layouts").then(function (r) { return r.json(); }).then(function (list) {
+                var names = (list || []).map(function (l) { return l.name; });
+                layoutW.options.values = names.length ? names : [""];
+                if ((!layoutW.value || names.indexOf(layoutW.value) < 0) && names.length) layoutW.value = names[0];
+                self.setDirtyCanvas(true, true);
+            }).catch(function () { /* leave the combo as-is if the list can't be fetched */ });
+        }
+        loadNames();
+        this.addWidget("button", "↻ refresh layouts", null, loadNames);
+        this.size = [240, 90];
+    });
+
     // --- Sink --------------------------------------------------------------
     // The result pane: a "filename" box + a download button, with the result clip
     // playing inline (an HTML <video> floated over the black preview area once a
@@ -656,6 +677,11 @@
                 var sp = n.widgets && n.widgets[0] && n.widgets[0].value;
                 if (!sp || !String(sp).trim())
                     issues.push({ node: n.id, msg: "Generate Sound needs a prompt — add one before running." });
+            }
+            if (n.type === "Groups/run_group") {
+                var lay = n.widgets && n.widgets[0] && n.widgets[0].value;
+                if (!lay || !String(lay).trim())
+                    issues.push({ node: n.id, msg: "Run Group has no layout selected — pick a saved layout (or save one first)." });
             }
         });
         return issues;
