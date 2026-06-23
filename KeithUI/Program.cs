@@ -11,6 +11,9 @@ builder.Services.AddScoped<KeithUI.Services.GraphExecutor>();
 // Persists named studio layouts (saved graphs) for the toolbar dropdown.
 builder.Services.AddSingleton<KeithUI.Services.LayoutStore>();
 
+// Tracks in-flight graph runs so the admin page / Stop button can cancel them.
+builder.Services.AddSingleton<KeithUI.Services.RunRegistry>();
+
 var app = builder.Build();
 
 // Localhost-only, HTTP only (same trust model as KeithVision) — no HSTS/HTTPS redirect.

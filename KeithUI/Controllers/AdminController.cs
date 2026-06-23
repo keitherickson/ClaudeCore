@@ -31,18 +31,19 @@ public class AdminController : Controller
     private readonly VideoSpeedService _speed;
     private readonly SystemStatsService _stats;
     private readonly LayoutStore _layouts;
+    private readonly RunRegistry _runs;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
         LtxVideoService ltx, LtxServerControl ltxControl, ComfyUiServerControl comfyControl,
         AudioServerControl audioControl, SoundGenService soundGen, VideoBackendCoordinator backends,
         ActiveModelStore activeModel, IOptions<VideoModelsOptions> videoModels, MaxineUpscaleService maxine,
-        VideoSpeedService speed, SystemStatsService stats, LayoutStore layouts, ILogger<AdminController> logger)
+        VideoSpeedService speed, SystemStatsService stats, LayoutStore layouts, RunRegistry runs, ILogger<AdminController> logger)
     {
         _ltx = ltx; _ltxControl = ltxControl; _comfyControl = comfyControl;
         _audioControl = audioControl; _soundGen = soundGen; _backends = backends;
         _activeModel = activeModel; _videoModels = videoModels.Value; _maxine = maxine;
-        _speed = speed; _stats = stats; _layouts = layouts; _logger = logger;
+        _speed = speed; _stats = stats; _layouts = layouts; _runs = runs; _logger = logger;
     }
 
     [HttpGet]
@@ -104,6 +105,7 @@ public class AdminController : Controller
             gpu = await GetGpuAsync(ct),
             gpuProcs = await GetGpuProcsAsync(ct),
             generation,
+            runs = _runs.List().Select(r => new { id = r.Id, startedUtc = r.StartedUtc }),
             cpu = _stats.Cpu,
             memory = _stats.Memory,
             app,
@@ -149,6 +151,28 @@ public class AdminController : Controller
         catch (Exception ex) { return Json(new { ok = false, error = ex.Message }); }
     }
 
+
+    public sealed record CancelRunRequest(string Id);
+
+    /// <summary>Cancels a single in-flight graph run by id.</summary>
+    [HttpPost]
+    public IActionResult CancelRun([FromBody] CancelRunRequest? req)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.Id))
+            return BadRequest(new { ok = false, error = "A run id is required." });
+        var found = _runs.Cancel(req.Id);
+        if (found) _logger.LogInformation("Studio admin cancelled run {RunId}", req.Id);
+        return Json(new { ok = found, error = found ? null : "Run not found (already finished?)." });
+    }
+
+    /// <summary>Cancels every in-flight graph run.</summary>
+    [HttpPost]
+    public IActionResult CancelAllRuns()
+    {
+        var n = _runs.CancelAll();
+        if (n > 0) _logger.LogInformation("Studio admin cancelled {Count} run(s)", n);
+        return Json(new { ok = true, cancelled = n });
+    }
 
     public sealed record SetModelRequest(string Id);
 

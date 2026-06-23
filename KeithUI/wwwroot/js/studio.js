@@ -545,12 +545,18 @@
     // --- Run ---------------------------------------------------------------
     var statusEl = document.getElementById("status");
     var runBtn = document.getElementById("run-btn");
+    var stopBtn = document.getElementById("stop-btn");
+    var runAbort = null;        // AbortController for the in-flight run (Stop button)
+    var currentRunId = null;    // server-assigned id of the active run (from the "run" event)
     var resultEl = document.getElementById("result");   // the "Run log" panel
     var resultLog = document.getElementById("result-log");
     document.getElementById("result-close").addEventListener("click", function () { resultEl.classList.remove("show"); });
 
     function handleEvent(ev) {
         switch (ev.type) {
+            case "run":   // server assigned this run an id (used for cancellation)
+                currentRunId = ev.id;
+                break;
             case "node-start":
                 nodeStatus[ev.node] = "running";
                 delete nodeProgress[ev.node];
@@ -668,13 +674,16 @@
         clearVideoOverlays();
         resultLog.textContent = "";
         statusEl.textContent = "Running… (video generation can take minutes)";
-        runBtn.disabled = true;
+        currentRunId = null;
+        runAbort = new AbortController();
+        runBtn.disabled = true; stopBtn.disabled = false;
         lgcanvas.setDirty(true, true);
         try {
             var resp = await fetch("/Studio/Run", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(graph.serialize())
+                body: JSON.stringify(graph.serialize()),
+                signal: runAbort.signal
             });
             var reader = resp.body.getReader();
             var dec = new TextDecoder();
@@ -690,10 +699,30 @@
                 }
             }
         } catch (e) {
-            statusEl.textContent = "Run failed: " + e.message;
+            // Aborting the fetch (Stop) surfaces as an AbortError — not a real failure.
+            statusEl.textContent = e.name === "AbortError" ? "Run cancelled." : "Run failed: " + e.message;
         } finally {
-            runBtn.disabled = false;
+            runBtn.disabled = false; stopBtn.disabled = true;
+            runAbort = null; currentRunId = null;
         }
+    });
+
+    // Stop: cancel server-side via the run id (works even if the stream stalls), and
+    // abort the fetch so the request token trips too. Either path unwinds the run.
+    stopBtn.addEventListener("click", async function () {
+        if (stopBtn.disabled) return;
+        stopBtn.disabled = true;
+        statusEl.textContent = "Cancelling…";
+        if (currentRunId) {
+            try {
+                await fetch("/Admin/CancelRun", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: currentRunId })
+                });
+            } catch (e) { /* fall back to the fetch abort below */ }
+        }
+        if (runAbort) { try { runAbort.abort(); } catch (e) { /* ignore */ } }
     });
     document.getElementById("reset-btn").addEventListener("click", function () {
         nodeStatus = {}; nodeProgress = {}; clearVideoOverlays(); starterGraph(); resize(); statusEl.textContent = "";

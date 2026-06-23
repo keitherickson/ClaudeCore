@@ -147,6 +147,13 @@
             } else {
                 h += '<div class="gen idle">No generation running.</div>';
             }
+            // Active runs (cancellable) — a run is one graph execution in flight.
+            var runs = d.runs || [];
+            runs.forEach(function (r) {
+                h += '<div class="row"><span class="k">Run <code>' + esc(r.id) + '</code></span>'
+                   + '<span class="v muted">' + ageOf(r.startedUtc) + '</span>'
+                   + '<button class="danger" style="margin-left:8px;padding:3px 10px;" onclick="_adminCancelRun(\'' + esc(r.id) + '\')">Cancel</button></div>';
+            });
             h += '<div class="actions">'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/RestartLtx\', null, \'Restart LTX\')">Restart LTX</button>'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/StartAudio\', null, \'Start audio\')">Start audio</button>'
@@ -169,6 +176,9 @@
         window._adminSwitchModel = function () {
             var sel = el("model-select"); if (!sel) return;
             action("/Admin/SetModel", { id: sel.value }, "Switch model to " + sel.value);
+        };
+        window._adminCancelRun = function (id) {
+            action("/Admin/CancelRun", { id: id }, "Cancel run " + id);
         };
 
         function renderSystem(d) {

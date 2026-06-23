@@ -18,14 +18,16 @@ public class StudioController : Controller
     private readonly LtxVideoService _ltx;   // for the output-dir guard on Preview
     private readonly SystemStatsService _stats;   // footer GPU/CPU/RAM readout
     private readonly LayoutStore _layouts;   // named, saved graphs for the dropdown
+    private readonly RunRegistry _runs;      // in-flight runs (cancellable from the admin page)
     private readonly ILogger<StudioController> _logger;
 
-    public StudioController(GraphExecutor executor, LtxVideoService ltx, SystemStatsService stats, LayoutStore layouts, ILogger<StudioController> logger)
+    public StudioController(GraphExecutor executor, LtxVideoService ltx, SystemStatsService stats, LayoutStore layouts, RunRegistry runs, ILogger<StudioController> logger)
     {
         _executor = executor;
         _ltx = ltx;
         _stats = stats;
         _layouts = layouts;
+        _runs = runs;
         _logger = logger;
     }
 
@@ -46,13 +48,27 @@ public class StudioController : Controller
         Response.Headers["Cache-Control"] = "no-cache";
         Response.Headers["X-Accel-Buffering"] = "no";
 
+        // Register the run so the admin page can cancel it; drive the executor with the
+        // linked token. The run id is emitted first so the client knows what to cancel.
+        var (runId, token) = _runs.Register(ct);
+
         async Task Emit(object ev)
         {
+            // Stream on the request token, not the (cancellable) run token, so a cancel
+            // still lets the final "done"/"node-error" event flush to the client.
             await Response.WriteAsync(JsonSerializer.Serialize(ev, JsonOpts) + "\n", ct);
             await Response.Body.FlushAsync(ct);
         }
 
-        await _executor.RunAsync(graph, Emit, ct);
+        try
+        {
+            await Emit(new { type = "run", id = runId });
+            await _executor.RunAsync(graph, Emit, token);
+        }
+        finally
+        {
+            _runs.Unregister(runId);
+        }
     }
 
     /// <summary>Streams a produced clip for the Save/Preview node (guarded to the output tree).</summary>
