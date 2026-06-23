@@ -23,6 +23,10 @@
         button:hover { background: #3b78e6; }
         button.ghost { background: #3a3a3a; }
         button.ghost:hover { background: #454545; }
+        select.ghost { background: #3a3a3a; color: #fff; border: 0; border-radius: 5px;
+            padding: 7px 10px; font-size: 13px; cursor: pointer; max-width: 200px; }
+        select.ghost:hover { background: #454545; }
+        #toolbar .divider { width: 1px; height: 22px; background: #000; margin: 0 2px; }
         #status { color: #9a9a9a; font-size: 12px; }
         #graph { position: fixed; top: 44px; left: 0; right: 0; bottom: 26px; }
         #footer { position: fixed; left: 0; right: 0; bottom: 0; height: 26px; z-index: 10;
@@ -47,6 +51,12 @@
         <button id="save-btn" class="ghost" title="Download this graph as JSON">⭳ Save</button>
         <button id="load-btn" class="ghost" title="Load a graph JSON file">⭱ Load</button>
         <input id="load-file" type="file" accept="application/json,.json" style="display:none" />
+        <span class="divider"></span>
+        <select id="layout-select" class="ghost" title="Load a saved layout">
+            <option value="">— saved layouts —</option>
+        </select>
+        <button id="layout-save-btn" class="ghost" title="Save the current graph as a named layout">＋ Save layout</button>
+        <button id="layout-delete-btn" class="ghost" title="Delete the selected layout">🗑</button>
         <span id="status"></span>
         <span class="spacer"></span>
         <span style="color:#6a6a6a;font-size:12px;">right-click canvas to add nodes · drag ports to wire</span>

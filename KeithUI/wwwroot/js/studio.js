@@ -749,4 +749,85 @@
         };
         reader.readAsText(loadFile.files[0]);
     });
+
+    // --- Named layouts (server-persisted, selectable from the dropdown) -----
+    // Save the current graph under a name and reload it later from the dropdown.
+    // Unlike Save/Load (which round-trip a JSON file on the user's disk), these
+    // live on the server via /Studio/{Layouts,SaveLayout,Layout,DeleteLayout}.
+    var layoutSelect = document.getElementById("layout-select");
+    var layoutSaveBtn = document.getElementById("layout-save-btn");
+    var layoutDeleteBtn = document.getElementById("layout-delete-btn");
+
+    // Refresh the dropdown from the server, keeping the placeholder option and
+    // optionally re-selecting a name (e.g. the one just saved).
+    async function refreshLayouts(selectName) {
+        try {
+            var list = await (await fetch("/Studio/Layouts")).json();
+            layoutSelect.options.length = 1;   // keep the "— saved layouts —" placeholder
+            list.forEach(function (l) {
+                var o = document.createElement("option");
+                o.value = l.name; o.textContent = l.name;
+                layoutSelect.appendChild(o);
+            });
+            layoutSelect.value = selectName || "";
+        } catch (e) { /* leave the dropdown as-is if the list can't be fetched */ }
+    }
+
+    function applyLoadedGraph(data, label) {
+        nodeStatus = {}; nodeProgress = {}; clearVideoOverlays();
+        graph.configure(data);
+        graph.start();
+        reattachThumbnails();
+        resize();
+        statusEl.textContent = "Loaded " + label + " (" + graph._nodes.length + " nodes)";
+    }
+
+    async function loadLayout(name) {
+        if (!name) return;
+        statusEl.textContent = "Loading layout “" + name + "”…";
+        try {
+            var d = await (await fetch("/Studio/Layout?name=" + encodeURIComponent(name))).json();
+            if (!d.ok || !d.graph) { statusEl.textContent = "Layout “" + name + "” not found."; return; }
+            applyLoadedGraph(d.graph, "layout “" + name + "”");
+        } catch (e) {
+            statusEl.textContent = "Load failed: " + e.message;
+        }
+    }
+    layoutSelect.addEventListener("change", function () { loadLayout(layoutSelect.value); });
+
+    layoutSaveBtn.addEventListener("click", async function () {
+        var name = (window.prompt("Save layout as:", layoutSelect.value || "") || "").trim();
+        if (!name) return;
+        try {
+            var resp = await fetch("/Studio/SaveLayout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name, graph: graph.serialize() })
+            });
+            var d = await resp.json();
+            if (!d.ok) { statusEl.textContent = "Save failed: " + (d.error || "unknown error"); return; }
+            await refreshLayouts(d.name);
+            statusEl.textContent = "Saved layout “" + d.name + "”";
+        } catch (e) {
+            statusEl.textContent = "Save failed: " + e.message;
+        }
+    });
+
+    layoutDeleteBtn.addEventListener("click", async function () {
+        var name = layoutSelect.value;
+        if (!name) { statusEl.textContent = "Pick a layout to delete first."; return; }
+        if (!window.confirm("Delete layout “" + name + "”?")) return;
+        try {
+            var resp = await fetch("/Studio/DeleteLayout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name })
+            });
+            var d = await resp.json();
+            if (d.ok) { await refreshLayouts(); statusEl.textContent = "Deleted layout “" + name + "”"; }
+            else { statusEl.textContent = "Delete failed."; }
+        } catch (e) { statusEl.textContent = "Delete failed: " + e.message; }
+    });
+
+    refreshLayouts();   // populate the dropdown on load
 })();

@@ -17,13 +17,15 @@ public class StudioController : Controller
     private readonly GraphExecutor _executor;
     private readonly LtxVideoService _ltx;   // for the output-dir guard on Preview
     private readonly SystemStatsService _stats;   // footer GPU/CPU/RAM readout
+    private readonly LayoutStore _layouts;   // named, saved graphs for the dropdown
     private readonly ILogger<StudioController> _logger;
 
-    public StudioController(GraphExecutor executor, LtxVideoService ltx, SystemStatsService stats, ILogger<StudioController> logger)
+    public StudioController(GraphExecutor executor, LtxVideoService ltx, SystemStatsService stats, LayoutStore layouts, ILogger<StudioController> logger)
     {
         _executor = executor;
         _ltx = ltx;
         _stats = stats;
+        _layouts = layouts;
         _logger = logger;
     }
 
@@ -123,6 +125,54 @@ public class StudioController : Controller
         var mime = ext == ".png" ? "image/png" : ext is ".jpg" or ".jpeg" ? "image/jpeg" : ext == ".webp" ? "image/webp" : "application/octet-stream";
         return PhysicalFile(full, mime);
     }
+
+    /// <summary>Lists the saved layouts (name + save time) for the toolbar dropdown.</summary>
+    [HttpGet]
+    public IActionResult Layouts()
+        => Json(_layouts.List().Select(l => new { name = l.Name, savedUtc = l.SavedUtc }));
+
+    /// <summary>Saves (or overwrites) the posted graph under a name.</summary>
+    [HttpPost]
+    public async Task<IActionResult> SaveLayout([FromBody] SaveLayoutRequest? req, CancellationToken ct)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest(new { ok = false, error = "A layout name is required." });
+        if (req.Graph.ValueKind != JsonValueKind.Object)
+            return BadRequest(new { ok = false, error = "No graph to save." });
+        try
+        {
+            await _layouts.SaveAsync(req.Name, req.Graph, ct);
+            return Json(new { ok = true, name = req.Name.Trim() });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { ok = false, error = ex.Message });
+        }
+    }
+
+    /// <summary>Returns the saved graph for a layout name (for loading into the canvas).</summary>
+    [HttpGet]
+    public async Task<IActionResult> Layout(string? name, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return BadRequest(new { ok = false, error = "A layout name is required." });
+        var graph = await _layouts.LoadAsync(name, ct);
+        if (graph is null)
+            return NotFound(new { ok = false, error = $"Layout '{name}' not found." });
+        return Json(new { ok = true, graph = graph.Value });
+    }
+
+    /// <summary>Deletes a named layout.</summary>
+    [HttpPost]
+    public IActionResult DeleteLayout([FromBody] DeleteLayoutRequest? req)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest(new { ok = false, error = "A layout name is required." });
+        return Json(new { ok = _layouts.Delete(req.Name) });
+    }
+
+    public sealed record SaveLayoutRequest(string Name, JsonElement Graph);
+    public sealed record DeleteLayoutRequest(string Name);
 
     /// <summary>Live GPU + CPU + RAM snapshot for the footer (mirrors KeithVision's /Admin/SystemStats).</summary>
     [HttpGet]

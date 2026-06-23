@@ -8,6 +8,9 @@ builder.Services.AddKeithVisionServices(builder.Configuration);
 // Walks a serialized node graph and runs it via the Core services.
 builder.Services.AddScoped<KeithUI.Services.GraphExecutor>();
 
+// Persists named studio layouts (saved graphs) for the toolbar dropdown.
+builder.Services.AddSingleton<KeithUI.Services.LayoutStore>();
+
 var app = builder.Build();
 
 // Localhost-only, HTTP only (same trust model as KeithVision) — no HSTS/HTTPS redirect.
