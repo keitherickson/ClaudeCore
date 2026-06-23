@@ -758,6 +758,20 @@
     var layoutSaveBtn = document.getElementById("layout-save-btn");
     var layoutDeleteBtn = document.getElementById("layout-delete-btn");
 
+    // "2026-06-23T14:12:…Z" -> " (saved Jun 23, 2:14 PM)" in the viewer's locale.
+    // Today's saves show the time; older ones just the date. Blank if unparseable.
+    function savedSuffix(utc) {
+        if (!utc) return "";
+        var d = new Date(utc);
+        if (isNaN(d)) return "";
+        var now = new Date();
+        var sameDay = d.toDateString() === now.toDateString();
+        var when = sameDay
+            ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+            : d.toLocaleDateString([], { month: "short", day: "numeric" });
+        return "  (saved " + when + ")";
+    }
+
     // Refresh the dropdown from the server, keeping the placeholder option and
     // optionally re-selecting a name (e.g. the one just saved).
     async function refreshLayouts(selectName) {
@@ -766,7 +780,8 @@
             layoutSelect.options.length = 1;   // keep the "— saved layouts —" placeholder
             list.forEach(function (l) {
                 var o = document.createElement("option");
-                o.value = l.name; o.textContent = l.name;
+                o.value = l.name;                              // value stays the bare name (used to load)
+                o.textContent = l.name + savedSuffix(l.savedUtc);   // label adds the save time
                 layoutSelect.appendChild(o);
             });
             layoutSelect.value = selectName || "";
