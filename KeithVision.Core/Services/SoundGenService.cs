@@ -15,17 +15,20 @@ public sealed class SoundGenService
     private readonly LocalAudioClient _client;
     private readonly LocalAudioOptions _options;
     private readonly LtxVideoOptions _ltx;
+    private readonly AudioServerControl _control;
     private readonly ILogger<SoundGenService> _logger;
 
     public SoundGenService(
         LocalAudioClient client,
         IOptions<LocalAudioOptions> options,
         IOptions<LtxVideoOptions> ltx,
+        AudioServerControl control,
         ILogger<SoundGenService> logger)
     {
         _client = client;
         _options = options.Value;
         _ltx = ltx.Value;
+        _control = control;
         _logger = logger;
     }
 
@@ -64,6 +67,7 @@ public sealed class SoundGenService
     /// </summary>
     public async Task<StagedAudio> GenerateAsync(string prompt, double? seconds, CancellationToken ct = default)
     {
+        await EnsureUpAsync(ct);
         double? s = seconds is > 0 ? Math.Min(seconds.Value, _options.MaxDurationSeconds) : null;
         var bytes = await _client.GenerateSoundAsync(prompt, s, ct);
 
@@ -74,6 +78,29 @@ public sealed class SoundGenService
 
         _logger.LogInformation("Generated sound for '{Prompt}' → {Path} ({Bytes} bytes)", prompt, path, bytes.Length);
         return new StagedAudio(fileName, path, prompt);
+    }
+
+    /// <summary>
+    /// Starts the audio server if it isn't listening and waits (best-effort) for the model
+    /// to report loaded, so the Generate Sound node "just works" without the user pre-starting
+    /// it from the Admin page. Mirrors <see cref="PromptEnhanceService"/>'s on-demand start.
+    /// </summary>
+    private async Task EnsureUpAsync(CancellationToken ct)
+    {
+        if (_control.IsPortListening()) return;
+
+        _logger.LogInformation("Audio server not running — starting it on demand.");
+        if (!_control.StartDetached()) return;   // script missing; GenerateAsync will then surface the connection error
+
+        // Wait for the port to bind, then for the model to report loaded (Stable Audio load takes ~30-60s).
+        for (var i = 0; i < 60 && !_control.IsPortListening(); i++)
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        for (var i = 0; i < 90; i++)
+        {
+            var (ok, _) = await GetHealthAsync(ct);
+            if (ok) return;
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        }
     }
 
     /// <summary>Resolves a bare file name to a path inside the staging dir (guards against path traversal).</summary>
