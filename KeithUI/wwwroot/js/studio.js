@@ -378,6 +378,37 @@
         this.size = [200, 60];
     });
 
+    // Lay a sound track over a finished clip: copies the video through and muxes
+    // the audio onto it (capped to the video's length). Unlike Generate Video's
+    // audio input — which conditions generation — this just dubs an existing clip.
+    define("Sound/add_audio", "Add Audio", "#553", function () {
+        this.addInput("video", LiteGraph.VIDEO);
+        this.addInput("audio", LiteGraph.AUDIO);
+        this.addOutput("video", LiteGraph.VIDEO);
+        this.size = [200, 60];
+    });
+
+    // --- Groups ------------------------------------------------------------
+    // Run a saved layout (its on-disk JSON is the "config file") as a self-contained
+    // group of nodes, emitting that sub-pipeline's result as this node's VIDEO output.
+    // Pick which layout from the combo; ↻ refreshes the list from the server.
+    define("Groups/run_group", "Run Group", "#446", function () {
+        var self = this;
+        this.addOutput("video", LiteGraph.VIDEO);
+        var layoutW = this.addWidget("combo", "layout", "", null, { values: [""] });
+        function loadNames() {
+            fetch("/Studio/Layouts").then(function (r) { return r.json(); }).then(function (list) {
+                var names = (list || []).map(function (l) { return l.name; });
+                layoutW.options.values = names.length ? names : [""];
+                if ((!layoutW.value || names.indexOf(layoutW.value) < 0) && names.length) layoutW.value = names[0];
+                self.setDirtyCanvas(true, true);
+            }).catch(function () { /* leave the combo as-is if the list can't be fetched */ });
+        }
+        loadNames();
+        this.addWidget("button", "↻ refresh layouts", null, loadNames);
+        this.size = [240, 90];
+    });
+
     // --- Sink --------------------------------------------------------------
     // The result pane: a "filename" box + a download button, with the result clip
     // playing inline (an HTML <video> floated over the black preview area once a
@@ -535,12 +566,18 @@
     // --- Run ---------------------------------------------------------------
     var statusEl = document.getElementById("status");
     var runBtn = document.getElementById("run-btn");
+    var stopBtn = document.getElementById("stop-btn");
+    var runAbort = null;        // AbortController for the in-flight run (Stop button)
+    var currentRunId = null;    // server-assigned id of the active run (from the "run" event)
     var resultEl = document.getElementById("result");   // the "Run log" panel
     var resultLog = document.getElementById("result-log");
     document.getElementById("result-close").addEventListener("click", function () { resultEl.classList.remove("show"); });
 
     function handleEvent(ev) {
         switch (ev.type) {
+            case "run":   // server assigned this run an id (used for cancellation)
+                currentRunId = ev.id;
+                break;
             case "node-start":
                 nodeStatus[ev.node] = "running";
                 delete nodeProgress[ev.node];
@@ -582,6 +619,7 @@
         "Upscaling/upscale_ai": { slot: "video", label: "Upscale (AI)" },
         "Upscaling/upscale_maxine": { slot: "video", label: "Upscale (MAXINE)" },
         "Speed/speed": { slot: "video", label: "Speed Up" },
+        "Sound/add_audio": { slot: "video", label: "Add Audio" },
     };
     function isLinked(n, slotName) {
         if (!n.inputs) return false;
@@ -618,6 +656,8 @@
             var req = REQUIRED_INPUT[n.type];
             if (req && !isLinked(n, req.slot))
                 issues.push({ node: n.id, msg: req.label + " has no " + req.slot + " input connected — wire a video into it." });
+            if (n.type === "Sound/add_audio" && !isLinked(n, "audio"))
+                issues.push({ node: n.id, msg: "Add Audio has no audio input — wire a sound (Generate/Load Sound) into it." });
             if (n.type === "Image/load_image") {
                 var fileW = n.widgets && n.widgets[0];
                 if (!fileW || !fileW.value)
@@ -638,6 +678,11 @@
                 if (!sp || !String(sp).trim())
                     issues.push({ node: n.id, msg: "Generate Sound needs a prompt — add one before running." });
             }
+            if (n.type === "Groups/run_group") {
+                var lay = n.widgets && n.widgets[0] && n.widgets[0].value;
+                if (!lay || !String(lay).trim())
+                    issues.push({ node: n.id, msg: "Run Group has no layout selected — pick a saved layout (or save one first)." });
+            }
         });
         return issues;
     }
@@ -655,13 +700,16 @@
         clearVideoOverlays();
         resultLog.textContent = "";
         statusEl.textContent = "Running… (video generation can take minutes)";
-        runBtn.disabled = true;
+        currentRunId = null;
+        runAbort = new AbortController();
+        runBtn.disabled = true; stopBtn.disabled = false;
         lgcanvas.setDirty(true, true);
         try {
             var resp = await fetch("/Studio/Run", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(graph.serialize())
+                body: JSON.stringify(graph.serialize()),
+                signal: runAbort.signal
             });
             var reader = resp.body.getReader();
             var dec = new TextDecoder();
@@ -677,10 +725,30 @@
                 }
             }
         } catch (e) {
-            statusEl.textContent = "Run failed: " + e.message;
+            // Aborting the fetch (Stop) surfaces as an AbortError — not a real failure.
+            statusEl.textContent = e.name === "AbortError" ? "Run cancelled." : "Run failed: " + e.message;
         } finally {
-            runBtn.disabled = false;
+            runBtn.disabled = false; stopBtn.disabled = true;
+            runAbort = null; currentRunId = null;
         }
+    });
+
+    // Stop: cancel server-side via the run id (works even if the stream stalls), and
+    // abort the fetch so the request token trips too. Either path unwinds the run.
+    stopBtn.addEventListener("click", async function () {
+        if (stopBtn.disabled) return;
+        stopBtn.disabled = true;
+        statusEl.textContent = "Cancelling…";
+        if (currentRunId) {
+            try {
+                await fetch("/Admin/CancelRun", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: currentRunId })
+                });
+            } catch (e) { /* fall back to the fetch abort below */ }
+        }
+        if (runAbort) { try { runAbort.abort(); } catch (e) { /* ignore */ } }
     });
     document.getElementById("reset-btn").addEventListener("click", function () {
         nodeStatus = {}; nodeProgress = {}; clearVideoOverlays(); starterGraph(); resize(); statusEl.textContent = "";
@@ -736,4 +804,126 @@
         };
         reader.readAsText(loadFile.files[0]);
     });
+
+    // --- Named layouts (server-persisted, selectable from the dropdown) -----
+    // Save the current graph under a name and reload it later from the dropdown.
+    // Unlike Save/Load (which round-trip a JSON file on the user's disk), these
+    // live on the server via /Studio/{Layouts,SaveLayout,Layout,DeleteLayout}.
+    var layoutSelect = document.getElementById("layout-select");
+    var layoutSaveBtn = document.getElementById("layout-save-btn");
+    var layoutDeleteBtn = document.getElementById("layout-delete-btn");
+    var savedLayouts = [];   // last-fetched [{ name, savedUtc }] — used for the overwrite check
+
+    // Mirror of LayoutStore.Slug on the server: lowercase, keep [a-z0-9], map
+    // space/dash/underscore to '-', drop the rest, trim '-'. Two names with the
+    // same slug map to the same file, so saving one overwrites the other — this
+    // lets the Save button warn before that happens.
+    function layoutSlug(name) {
+        var out = "", s = (name || "").trim().toLowerCase();
+        for (var i = 0; i < s.length; i++) {
+            var ch = s[i];
+            if (ch >= "a" && ch <= "z" || ch >= "0" && ch <= "9") out += ch;
+            else if (ch === " " || ch === "-" || ch === "_") out += "-";
+        }
+        return out.replace(/^-+|-+$/g, "");
+    }
+    // The display name of an existing layout that the given name would overwrite, or null.
+    function existingLayoutFor(name) {
+        var slug = layoutSlug(name);
+        if (!slug) return null;
+        for (var i = 0; i < savedLayouts.length; i++)
+            if (layoutSlug(savedLayouts[i].name) === slug) return savedLayouts[i].name;
+        return null;
+    }
+
+    // "2026-06-23T14:12:…Z" -> " (saved Jun 23, 2:14 PM)" in the viewer's locale.
+    // Today's saves show the time; older ones just the date. Blank if unparseable.
+    function savedSuffix(utc) {
+        if (!utc) return "";
+        var d = new Date(utc);
+        if (isNaN(d)) return "";
+        var now = new Date();
+        var sameDay = d.toDateString() === now.toDateString();
+        var when = sameDay
+            ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+            : d.toLocaleDateString([], { month: "short", day: "numeric" });
+        return "  (saved " + when + ")";
+    }
+
+    // Refresh the dropdown from the server, keeping the placeholder option and
+    // optionally re-selecting a name (e.g. the one just saved).
+    async function refreshLayouts(selectName) {
+        try {
+            var list = await (await fetch("/Studio/Layouts")).json();
+            savedLayouts = list;               // cache for the overwrite check
+            layoutSelect.options.length = 1;   // keep the "— saved layouts —" placeholder
+            list.forEach(function (l) {
+                var o = document.createElement("option");
+                o.value = l.name;                              // value stays the bare name (used to load)
+                o.textContent = l.name + savedSuffix(l.savedUtc);   // label adds the save time
+                layoutSelect.appendChild(o);
+            });
+            layoutSelect.value = selectName || "";
+        } catch (e) { /* leave the dropdown as-is if the list can't be fetched */ }
+    }
+
+    function applyLoadedGraph(data, label) {
+        nodeStatus = {}; nodeProgress = {}; clearVideoOverlays();
+        graph.configure(data);
+        graph.start();
+        reattachThumbnails();
+        resize();
+        statusEl.textContent = "Loaded " + label + " (" + graph._nodes.length + " nodes)";
+    }
+
+    async function loadLayout(name) {
+        if (!name) return;
+        statusEl.textContent = "Loading layout “" + name + "”…";
+        try {
+            var d = await (await fetch("/Studio/Layout?name=" + encodeURIComponent(name))).json();
+            if (!d.ok || !d.graph) { statusEl.textContent = "Layout “" + name + "” not found."; return; }
+            applyLoadedGraph(d.graph, "layout “" + name + "”");
+        } catch (e) {
+            statusEl.textContent = "Load failed: " + e.message;
+        }
+    }
+    layoutSelect.addEventListener("change", function () { loadLayout(layoutSelect.value); });
+
+    layoutSaveBtn.addEventListener("click", async function () {
+        var name = (window.prompt("Save layout as:", layoutSelect.value || "") || "").trim();
+        if (!name) return;
+        var clash = existingLayoutFor(name);   // warn before clobbering an existing layout
+        if (clash && !window.confirm("A layout named “" + clash + "” already exists. Overwrite it?")) return;
+        try {
+            var resp = await fetch("/Studio/SaveLayout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name, graph: graph.serialize() })
+            });
+            var d = await resp.json();
+            if (!d.ok) { statusEl.textContent = "Save failed: " + (d.error || "unknown error"); return; }
+            await refreshLayouts(d.name);
+            statusEl.textContent = "Saved layout “" + d.name + "”";
+        } catch (e) {
+            statusEl.textContent = "Save failed: " + e.message;
+        }
+    });
+
+    layoutDeleteBtn.addEventListener("click", async function () {
+        var name = layoutSelect.value;
+        if (!name) { statusEl.textContent = "Pick a layout to delete first."; return; }
+        if (!window.confirm("Delete layout “" + name + "”?")) return;
+        try {
+            var resp = await fetch("/Studio/DeleteLayout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name })
+            });
+            var d = await resp.json();
+            if (d.ok) { await refreshLayouts(); statusEl.textContent = "Deleted layout “" + name + "”"; }
+            else { statusEl.textContent = "Delete failed."; }
+        } catch (e) { statusEl.textContent = "Delete failed: " + e.message; }
+    });
+
+    refreshLayouts();   // populate the dropdown on load
 })();

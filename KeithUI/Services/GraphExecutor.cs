@@ -22,102 +22,29 @@ public sealed class GraphExecutor
     private readonly VideoSpeedService _speed;
     private readonly SoundGenService _sound;
     private readonly VideoDefaultsOptions _defaults;
+    private readonly LayoutStore _layouts;   // for the "Run Group" node (a saved layout = a config file)
     private readonly ILogger<GraphExecutor> _log;
 
     public GraphExecutor(
         LtxVideoService ltx, ActiveModelStore activeModel, VideoBackendCoordinator coordinator,
         MaxineUpscaleService maxine, ComfyUiUpscaleService aiUpscale, VideoSpeedService speed,
-        SoundGenService sound, IOptions<VideoDefaultsOptions> defaults, ILogger<GraphExecutor> log)
+        SoundGenService sound, IOptions<VideoDefaultsOptions> defaults, LayoutStore layouts, ILogger<GraphExecutor> log)
     {
         _ltx = ltx; _activeModel = activeModel; _coordinator = coordinator;
         _maxine = maxine; _aiUpscale = aiUpscale; _speed = speed; _sound = sound;
-        _defaults = defaults.Value; _log = log;
+        _defaults = defaults.Value; _layouts = layouts; _log = log;
     }
 
-    /// <summary>Runs the graph, calling <paramref name="emit"/> for each event.</summary>
+    private const int MaxGroupDepth = 8;   // guard against deep/recursive Run Group chains
+
+    /// <summary>Runs the top-level graph, calling <paramref name="emit"/> for each event.</summary>
     public async Task RunAsync(JsonElement graphJson, Func<object, Task> emit, CancellationToken ct)
     {
         Task Log(string t) => emit(new { type = "log", text = t });
         try
         {
             var graph = graphJson.Deserialize<LGraph>(Web) ?? new LGraph();
-            var linkMap = new Dictionary<long, (long node, int slot)>();
-            foreach (var l in graph.links)
-                if (l.ValueKind == JsonValueKind.Array && l.GetArrayLength() >= 4)
-                    linkMap[l[0].GetInt64()] = (l[1].GetInt64(), l[2].GetInt32());
-
-            // Only run the nodes that actually feed a Preview Save — walk upstream
-            // from each Save node along the links. Floating nodes and dead-end
-            // branches that don't reach an output are ignored. (No Save node at all
-            // => fall back to running everything, preserving the last-output result.)
-            var byId = graph.nodes.GroupBy(n => n.id).ToDictionary(g => g.Key, g => g.First());
-            var saveRoots = graph.nodes.Where(n => n.type == "Preview Save/save").Select(n => n.id).ToList();
-            HashSet<long> active;
-            if (saveRoots.Count > 0)
-            {
-                active = new HashSet<long>();
-                var stack = new Stack<long>(saveRoots);
-                while (stack.Count > 0)
-                {
-                    var id = stack.Pop();
-                    if (!active.Add(id) || !byId.TryGetValue(id, out var node)) continue;
-                    foreach (var slot in node.inputs ?? new())
-                        if (slot.link is long lid && linkMap.TryGetValue(lid, out var src) && !active.Contains(src.node))
-                            stack.Push(src.node);
-                }
-            }
-            else
-            {
-                active = graph.nodes.Select(n => n.id).ToHashSet();
-            }
-            var runNodes = graph.nodes.Where(n => active.Contains(n.id)).ToList();
-
-            var outputs = new Dictionary<long, string>();
-            var done = new HashSet<long>();
-            string? finalVideo = null;
-
-            while (done.Count < runNodes.Count)
-            {
-                var progressed = false;
-                foreach (var n in runNodes)
-                {
-                    if (done.Contains(n.id)) continue;
-                    var inputs = new Dictionary<string, string>();
-                    var ready = true;
-                    foreach (var slot in n.inputs ?? new())
-                        if (slot.link is long lid && linkMap.TryGetValue(lid, out var src))
-                        {
-                            if (!outputs.TryGetValue(src.node, out var p)) { ready = false; break; }
-                            inputs[slot.name ?? ""] = p;
-                        }
-                    if (!ready) continue;
-
-                    await emit(new { type = "node-start", node = n.id });
-                    try
-                    {
-                        var produced = await ExecuteNode(n, inputs, emit, Log, ct);
-                        if (produced is not null) outputs[n.id] = produced;
-                        if (n.type == "Preview Save/save" && inputs.TryGetValue("video", out var fv))
-                        {
-                            finalVideo = fv;
-                            await emit(new { type = "node-result", node = n.id, video = fv });  // play it in the node
-                        }
-                        await emit(new { type = "node-done", node = n.id });
-                    }
-                    catch (Exception ex)
-                    {
-                        await emit(new { type = "node-error", node = n.id, error = ex.Message });
-                        await Log("ERROR @ node " + n.id + ": " + ex.Message);
-                        await emit(new { type = "done", finalVideo = (string?)null, ok = false });
-                        return;
-                    }
-                    done.Add(n.id);
-                    progressed = true;
-                }
-                if (!progressed) { await Log("Stopped: a node has unmet inputs (cycle or missing connection)."); break; }
-            }
-
-            finalVideo ??= outputs.Values.LastOrDefault();
+            var finalVideo = await ExecuteGraphAsync(graph, emit, Log, depth: 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase), ct);
             await emit(new { type = "done", finalVideo, ok = true });
         }
         catch (Exception ex)
@@ -127,7 +54,95 @@ public sealed class GraphExecutor
         }
     }
 
-    private async Task<string?> ExecuteNode(LNode n, Dictionary<string, string> inputs, Func<object, Task> emit, Func<string, Task> log, CancellationToken ct)
+    /// <summary>
+    /// Walks a single graph (top-level or a sub-graph loaded by a "Run Group" node) and
+    /// returns the video that reaches its Preview Save (or the last produced output).
+    /// Emits per-node events through <paramref name="emit"/>; on a node failure it emits
+    /// node-error + a log line and rethrows, leaving the final "done" to the caller.
+    /// <paramref name="groupChain"/> is the set of layout names already on the stack, so a
+    /// group can't recurse into itself; <paramref name="depth"/> bounds nesting.
+    /// </summary>
+    private async Task<string?> ExecuteGraphAsync(LGraph graph, Func<object, Task> emit, Func<string, Task> Log, int depth, HashSet<string> groupChain, CancellationToken ct)
+    {
+        var linkMap = new Dictionary<long, (long node, int slot)>();
+        foreach (var l in graph.links)
+            if (l.ValueKind == JsonValueKind.Array && l.GetArrayLength() >= 4)
+                linkMap[l[0].GetInt64()] = (l[1].GetInt64(), l[2].GetInt32());
+
+        // Only run the nodes that actually feed a Preview Save — walk upstream
+        // from each Save node along the links. Floating nodes and dead-end
+        // branches that don't reach an output are ignored. (No Save node at all
+        // => fall back to running everything, preserving the last-output result.)
+        var byId = graph.nodes.GroupBy(n => n.id).ToDictionary(g => g.Key, g => g.First());
+        var saveRoots = graph.nodes.Where(n => n.type == "Preview Save/save").Select(n => n.id).ToList();
+        HashSet<long> active;
+        if (saveRoots.Count > 0)
+        {
+            active = new HashSet<long>();
+            var stack = new Stack<long>(saveRoots);
+            while (stack.Count > 0)
+            {
+                var id = stack.Pop();
+                if (!active.Add(id) || !byId.TryGetValue(id, out var node)) continue;
+                foreach (var slot in node.inputs ?? new())
+                    if (slot.link is long lid && linkMap.TryGetValue(lid, out var src) && !active.Contains(src.node))
+                        stack.Push(src.node);
+            }
+        }
+        else
+        {
+            active = graph.nodes.Select(n => n.id).ToHashSet();
+        }
+        var runNodes = graph.nodes.Where(n => active.Contains(n.id)).ToList();
+
+        var outputs = new Dictionary<long, string>();
+        var done = new HashSet<long>();
+        string? finalVideo = null;
+
+        while (done.Count < runNodes.Count)
+        {
+            var progressed = false;
+            foreach (var n in runNodes)
+            {
+                if (done.Contains(n.id)) continue;
+                var inputs = new Dictionary<string, string>();
+                var ready = true;
+                foreach (var slot in n.inputs ?? new())
+                    if (slot.link is long lid && linkMap.TryGetValue(lid, out var src))
+                    {
+                        if (!outputs.TryGetValue(src.node, out var p)) { ready = false; break; }
+                        inputs[slot.name ?? ""] = p;
+                    }
+                if (!ready) continue;
+
+                await emit(new { type = "node-start", node = n.id });
+                try
+                {
+                    var produced = await ExecuteNode(n, inputs, emit, Log, depth, groupChain, ct);
+                    if (produced is not null) outputs[n.id] = produced;
+                    if (n.type == "Preview Save/save" && inputs.TryGetValue("video", out var fv))
+                    {
+                        finalVideo = fv;
+                        await emit(new { type = "node-result", node = n.id, video = fv });  // play it in the node
+                    }
+                    await emit(new { type = "node-done", node = n.id });
+                }
+                catch (Exception ex)
+                {
+                    await emit(new { type = "node-error", node = n.id, error = ex.Message });
+                    await Log("ERROR @ node " + n.id + ": " + ex.Message);
+                    throw;   // let the caller (top-level run, or the enclosing Run Group node) decide
+                }
+                done.Add(n.id);
+                progressed = true;
+            }
+            if (!progressed) { await Log("Stopped: a node has unmet inputs (cycle or missing connection)."); break; }
+        }
+
+        return finalVideo ?? outputs.Values.LastOrDefault();
+    }
+
+    private async Task<string?> ExecuteNode(LNode n, Dictionary<string, string> inputs, Func<object, Task> emit, Func<string, Task> log, int depth, HashSet<string> groupChain, CancellationToken ct)
     {
         var w = n.widgets_values ?? new();
         string Str(int i, string d = "") => i < w.Count && w[i].ValueKind == JsonValueKind.String ? w[i].GetString() ?? d : d;
@@ -276,6 +291,53 @@ public sealed class GraphExecutor
                 var r = await _speed.RetimeAsync(vidIn, factor, ct);
                 await log($"Speed Up [{factor}x]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
+            }
+            case "Sound/add_audio":
+            {
+                if (vidIn is null) { await log("Add Audio: no video input — skipped"); return null; }
+                if (audIn is null) { await log("Add Audio: no audio input — passing the video through unchanged"); return vidIn; }
+                var dubbed = await _speed.MuxAudioAsync(vidIn, audIn, ct);
+                await log($"Add Audio: {Path.GetFileName(audIn)} -> {Path.GetFileName(dubbed)}");
+                return dubbed;
+            }
+            case "Groups/run_group":
+            {
+                // A saved layout IS the config file: load it and run that group of nodes
+                // as a self-contained sub-graph, emitting its result as this node's output.
+                var name = Str(0);
+                if (string.IsNullOrWhiteSpace(name)) { await log("Run Group: no layout selected — skipped"); return null; }
+                if (depth >= MaxGroupDepth)
+                    throw new InvalidOperationException($"Run Group '{name}': nesting too deep (> {MaxGroupDepth}).");
+                if (!groupChain.Add(name))
+                    throw new InvalidOperationException($"Run Group '{name}': recursive group reference.");
+                try
+                {
+                    var layout = await _layouts.LoadAsync(name, ct)
+                        ?? throw new InvalidOperationException($"Run Group: layout '{name}' not found.");
+                    var sub = layout.Deserialize<LGraph>(Web) ?? new LGraph();
+                    await log($"Run Group '{name}': running {sub.nodes.Count} node(s)…");
+
+                    // Hide the sub-graph's per-node lifecycle from the parent canvas (those
+                    // ids aren't on this graph). Forward log lines, and relabel generation
+                    // progress onto this group node so it shows live progress while running.
+                    var groupId = n.id;
+                    Func<object, Task> subEmit = ev =>
+                    {
+                        var t = ev.GetType().GetProperty("type")?.GetValue(ev) as string;
+                        if (t == "log") return emit(ev);
+                        if (t == "node-progress")
+                            return emit(new { type = "node-progress", node = groupId, pct = ev.GetType().GetProperty("pct")?.GetValue(ev) });
+                        return Task.CompletedTask;   // drop node-start/done/error/result from the sub-graph
+                    };
+
+                    var result = await ExecuteGraphAsync(sub, subEmit, log, depth + 1, groupChain, ct);
+                    await log($"Run Group '{name}': {(result is null ? "(no video output)" : Path.GetFileName(result))}");
+                    return result;
+                }
+                finally
+                {
+                    groupChain.Remove(name);
+                }
             }
             case "Preview Save/save":
                 await log($"Save: {(vidIn is null ? "(no input)" : Path.GetFileName(vidIn))}");

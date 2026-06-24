@@ -1,0 +1,36 @@
+name: build
+
+# Compile-checks the three net10.0 projects on every push / PR. GitHub's runners
+# aren't behind the session egress policy, so they can fetch the .NET 10 SDK that
+# can't be installed inside the Claude Code remote environment.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: |
+          dotnet restore KeithVision.Core/KeithVision.Core.csproj
+          dotnet restore KeithVision.csproj
+          dotnet restore KeithUI/KeithUI.csproj
+
+      - name: Build (Release)
+        run: |
+          dotnet build KeithVision.Core/KeithVision.Core.csproj --no-restore --configuration Release
+          dotnet build KeithVision.csproj                       --no-restore --configuration Release
+          dotnet build KeithUI/KeithUI.csproj                   --no-restore --configuration Release

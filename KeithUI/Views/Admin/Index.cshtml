@@ -1,0 +1,327 @@
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KeithUI Studio · Admin</title>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; min-height: 100%; background: #1a1a1a;
+            font-family: system-ui, "Segoe UI", sans-serif; color: #e6e6e6; }
+        #topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px;
+            height: 48px; padding: 0 16px; background: #232323; border-bottom: 1px solid #000; }
+        #topbar .brand { font-weight: 600; letter-spacing: .3px; }
+        #topbar .brand small { color: #8a8a8a; font-weight: 400; margin-left: 6px; }
+        #topbar .spacer { flex: 1; }
+        #topbar a.back { color: #9ab; text-decoration: none; font-size: 13px; }
+        #topbar a.back:hover { color: #cde; }
+        #updated { color: #777; font-size: 12px; }
+        main { padding: 16px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); align-items: start; }
+        .panel { background: #232323; border: 1px solid #000; border-radius: 10px; padding: 14px 16px; }
+        .panel h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: #9a9a9a; }
+        .row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; border-top: 1px solid #2c2c2c; }
+        .row:first-of-type { border-top: 0; }
+        .row .k { color: #9a9a9a; }
+        .row .v { margin-left: auto; color: #e6e6e6; font-variant-numeric: tabular-nums; text-align: right; }
+        .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: #666; }
+        .dot.up { background: #4caf76; } .dot.warn { background: #e0b341; } .dot.down { background: #e05555; }
+        .muted { color: #777; font-size: 12px; }
+        .err { color: #e08a8a; font-size: 12px; word-break: break-word; }
+        button { background: #2d6cdf; color: #fff; border: 0; border-radius: 6px;
+            padding: 6px 13px; font-size: 12px; cursor: pointer; }
+        button:hover { background: #3b78e6; } button:disabled { opacity: .5; cursor: default; }
+        button.ghost { background: #3a3a3a; } button.ghost:hover { background: #454545; }
+        button.danger { background: #7a3030; } button.danger:hover { background: #8d3838; }
+        .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        select { background: #3a3a3a; color: #fff; border: 0; border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 100%; }
+        .bar { height: 7px; background: #333; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+        .bar > span { display: block; height: 100%; background: #4caf76; }
+        .bar > span.hot { background: #e0b341; } .bar > span.crit { background: #e05555; }
+        .list { max-height: 220px; overflow: auto; }
+        .list .row .x { cursor: pointer; color: #9a6a6a; margin-left: 8px; }
+        .list .row .x:hover { color: #e05555; }
+        .gen { margin-top: 10px; padding: 8px 10px; background: #1d2a22; border: 1px solid #244; border-radius: 6px; font-size: 12px; }
+        .gen.idle { background: #262626; border-color: #333; color: #888; }
+        .gallery { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+        .clip { background: #1b1b1b; border: 1px solid #000; border-radius: 8px; overflow: hidden; }
+        .clip video { width: 100%; display: block; background: #000; aspect-ratio: 16/9; object-fit: contain; }
+        .clip .meta { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11px; }
+        .clip .meta .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .clip .meta .sz { color: #888; margin-left: auto; white-space: nowrap; }
+        .clip .meta .x { cursor: pointer; color: #9a6a6a; } .clip .meta .x:hover { color: #e05555; }
+        #toast { position: fixed; right: 16px; bottom: 16px; max-width: 420px; background: #232323;
+            border: 1px solid #000; border-radius: 8px; padding: 10px 12px; font-size: 12px;
+            box-shadow: 0 6px 24px rgba(0,0,0,.5); display: none; white-space: pre-wrap; }
+        #toast.show { display: block; }
+    </style>
+</head>
+<body>
+    <div id="topbar">
+        <span class="brand">KeithUI <small>Studio · Admin</small></span>
+        <span class="spacer"></span>
+        <span id="updated">…</span>
+        <a class="back" href="/">← back to studio</a>
+    </div>
+
+    <main>
+        <section class="panel" id="p-backends"><h2>Backends</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-model"><h2>Active model</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-system"><h2>GPU &amp; system</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-diag"><h2>Diagnostics</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-storage"><h2>Storage</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-layouts"><h2>Saved layouts</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-outputs" style="grid-column: 1 / -1;"><h2>Recent outputs</h2><div class="body muted">loading…</div></section>
+    </main>
+
+    <div id="toast"></div>
+
+    <script>
+    (function () {
+        "use strict";
+        var busy = false;   // suppress polling re-render mid-action so buttons don't flicker
+
+        function el(id) { return document.getElementById(id); }
+        function body(id) { return el(id).querySelector(".body"); }
+        function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+        function dot(state) { return '<span class="dot ' + state + '"></span>'; }
+        function row(k, v) { return '<div class="row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'; }
+        function gb(mb) { return (mb / 1024).toFixed(1); }
+
+        function toast(msg) {
+            var t = el("toast"); t.textContent = msg; t.classList.add("show");
+            clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove("show"); }, 6000);
+        }
+
+        function backendState(b) {
+            if (b.reachable) return "up";
+            if (b.portListening) return "warn";   // process up but not answering health
+            return "down";
+        }
+
+        // POST an action, surface its result, then refresh.
+        async function action(path, payload, label) {
+            if (busy) return;
+            busy = true;
+            toast(label + "…");
+            try {
+                var resp = await fetch(path, {
+                    method: "POST",
+                    headers: payload ? { "Content-Type": "application/json" } : {},
+                    body: payload ? JSON.stringify(payload) : undefined
+                });
+                var d = await resp.json();
+                if (d.ok === false) toast(label + " failed: " + (d.error || d.output || "unknown"));
+                else toast(label + " ✓" + (d.output ? "\n" + d.output : "") + (d.mb != null ? "  (" + d.files + " files, " + d.mb + " MB)" : ""));
+            } catch (e) {
+                toast(label + " failed: " + e.message);
+            } finally {
+                busy = false;
+                refresh();
+            }
+        }
+        window._adminAction = action;
+
+        function renderBackends(d) {
+            var h = "";
+            // LTX
+            h += '<div class="row">' + dot(backendState(d.ltx)) + '<span class="k">LTX video</span>'
+               + '<span class="v">' + (d.ltx.reachable ? "reachable" : d.ltx.portListening ? "port up" : "down") + ' · :' + d.ltx.port + '</span></div>';
+            if (d.ltx.error) h += '<div class="err">' + esc(d.ltx.error) + '</div>';
+            // ComfyUI
+            h += '<div class="row">' + dot(d.comfy.portListening ? "up" : "down") + '<span class="k">ComfyUI</span>'
+               + '<span class="v">' + (d.comfy.portListening ? "port up" : "down") + ' · :' + d.comfy.port + ' · gpu ' + d.comfy.gpuIndex + '</span></div>';
+            // Audio
+            h += '<div class="row">' + dot(backendState(d.audio)) + '<span class="k">Stable Audio</span>'
+               + '<span class="v">' + (d.audio.reachable ? "model loaded" : d.audio.portListening ? "starting" : "stopped") + ' · :' + d.audio.port + '</span></div>';
+            if (d.audio.error) h += '<div class="err">' + esc(d.audio.error) + '</div>';
+            // Live generation strip — only meaningful while a clip is rendering.
+            var g = d.generation;
+            if (g && g.status && g.status !== "idle") {
+                var step = (g.currentStep != null && g.totalSteps) ? " · step " + g.currentStep + "/" + g.totalSteps : "";
+                h += '<div class="gen">▶ ' + esc(g.status) + (g.phase ? " — " + esc(g.phase) : "") + " · " + (g.progress || 0) + "%" + step
+                   + '<div class="bar"><span style="width:' + Math.max(0, Math.min(100, g.progress || 0)) + '%"></span></div></div>';
+            } else {
+                h += '<div class="gen idle">No generation running.</div>';
+            }
+            // Active runs (cancellable) — a run is one graph execution in flight.
+            var runs = d.runs || [];
+            runs.forEach(function (r) {
+                h += '<div class="row"><span class="k">Run <code>' + esc(r.id) + '</code></span>'
+                   + '<span class="v muted">' + ageOf(r.startedUtc) + '</span>'
+                   + '<button class="danger" style="margin-left:8px;padding:3px 10px;" onclick="_adminCancelRun(\'' + esc(r.id) + '\')">Cancel</button></div>';
+            });
+            h += '<div class="actions">'
+               + '<button class="ghost" onclick="_adminAction(\'/Admin/RestartLtx\', null, \'Restart LTX\')">Restart LTX</button>'
+               + '<button class="ghost" onclick="_adminAction(\'/Admin/StartAudio\', null, \'Start audio\')">Start audio</button>'
+               + '<button class="danger" onclick="_adminAction(\'/Admin/StopAudio\', null, \'Stop audio\')">Stop audio</button>'
+               + '</div>';
+            body("p-backends").innerHTML = h;
+        }
+
+        function renderModel(d) {
+            var opts = (d.models || []).map(function (m) {
+                return '<option value="' + esc(m.id) + '"' + (m.id === d.activeId ? " selected" : "") + '>'
+                     + esc(m.label) + " — " + esc(m.backend) + '</option>';
+            }).join("");
+            var active = (d.models || []).filter(function (m) { return m.id === d.activeId; })[0];
+            var h = '<select id="model-select">' + opts + '</select>';
+            if (active && active.description) h += '<div class="muted" style="margin-top:8px;">' + esc(active.description) + '</div>';
+            h += '<div class="actions"><button onclick="_adminSwitchModel()">Switch &amp; activate backend</button></div>';
+            body("p-model").innerHTML = h;
+        }
+        window._adminSwitchModel = function () {
+            var sel = el("model-select"); if (!sel) return;
+            action("/Admin/SetModel", { id: sel.value }, "Switch model to " + sel.value);
+        };
+        window._adminCancelRun = function (id) {
+            action("/Admin/CancelRun", { id: id }, "Cancel run " + id);
+        };
+
+        function renderSystem(d) {
+            var g = d.gpu || {}, c = d.cpu || {}, m = d.memory || {};
+            var h = "";
+            if (g.available) {
+                h += row("GPU", esc(g.name || "?"));
+                if (g.vramUsedMb != null && g.vramTotalMb != null) {
+                    var pct = Math.round(100 * g.vramUsedMb / g.vramTotalMb);
+                    var cls = pct >= 90 ? "crit" : pct >= 70 ? "hot" : "";
+                    h += row("VRAM", g.vramUsedMb + " / " + g.vramTotalMb + " MB (" + pct + "%)");
+                    h += '<div class="bar"><span class="' + cls + '" style="width:' + pct + '%"></span></div>';
+                }
+                if (g.utilizationPct != null) h += row("GPU util", g.utilizationPct + "%");
+                if (g.temperatureC != null) h += row("GPU temp", g.temperatureC + "°C");
+            } else {
+                h += row("GPU", '<span class="muted">' + esc(g.error || "n/a") + '</span>');
+            }
+            if (c && c.utilizationPct != null) h += row("CPU", c.utilizationPct + "%");
+            if (m && m.available && m.totalMb) h += row("RAM", gb(m.usedMb) + " / " + gb(m.totalMb) + " GB");
+            var procs = d.gpuProcs || [];
+            if (procs.length) {
+                h += '<div class="muted" style="margin-top:8px;">VRAM by process</div>';
+                procs.forEach(function (pr) {
+                    h += row(esc(pr.name) + ' <span class="muted">#' + esc(pr.pid) + '</span>', (pr.usedMb != null ? pr.usedMb + " MB" : "—"));
+                });
+            }
+            body("p-system").innerHTML = h;
+        }
+
+        function renderDiag(d) {
+            var h = "";
+            h += '<div class="row">' + dot(d.ffmpeg.ready ? "up" : "down") + '<span class="k">ffmpeg</span><span class="v">' + (d.ffmpeg.ready ? "ready" : "missing") + '</span></div>';
+            if (d.ffmpeg.path) h += '<div class="muted">' + esc(d.ffmpeg.path) + '</div>';
+            if (d.ffmpeg.error) h += '<div class="err">' + esc(d.ffmpeg.error) + '</div>';
+            h += '<div class="row">' + dot(d.maxine.ready ? "up" : "warn") + '<span class="k">Maxine upscaler</span><span class="v">' + (d.maxine.ready ? "ready" : "unavailable") + '</span></div>';
+            if (d.maxine.error) h += '<div class="err">' + esc(d.maxine.error) + '</div>';
+            var a = d.app || {};
+            h += row("App version", esc(a.version));
+            h += row("Machine", esc(a.machine));
+            if (a.uptimeSeconds != null) h += row("Uptime", fmtUptime(a.uptimeSeconds));
+            body("p-diag").innerHTML = h;
+        }
+
+        function fmtUptime(s) {
+            s = Math.max(0, s | 0);
+            var dd = Math.floor(s / 86400), hh = Math.floor((s % 86400) / 3600), mm = Math.floor((s % 3600) / 60);
+            return (dd ? dd + "d " : "") + (hh ? hh + "h " : "") + mm + "m";
+        }
+
+        function renderStorage(d) {
+            var o = d.output || {}, s = d.staging || {};
+            var h = "";
+            if (o.totalGb != null) {
+                h += row("Output drive", o.drive || "");
+                h += row("Free", o.freeGb + " / " + o.totalGb + " GB");
+            }
+            h += row("Output dir", '<span class="muted">' + esc(o.path) + '</span>');
+            h += row("Staging", s.files + " files · " + s.mb + " MB");
+            h += '<div class="actions"><button class="danger" onclick="_adminAction(\'/Admin/CleanStaging\', null, \'Clean staging\')">Clean staging</button></div>';
+            body("p-storage").innerHTML = h;
+        }
+
+        function renderLayouts(d) {
+            var list = d.layouts || [];
+            if (!list.length) { body("p-layouts").innerHTML = '<div class="muted">No saved layouts.</div>'; return; }
+            var h = '<div class="list">';
+            list.forEach(function (l) {
+                h += '<div class="row"><span class="k">' + esc(l.name) + '</span>'
+                   + '<span class="v muted">' + savedWhen(l.savedUtc) + '</span>'
+                   + '<span class="x" title="Delete" onclick="_adminDeleteLayout(\'' + esc(l.name).replace(/'/g, "\\'") + '\')">🗑</span></div>';
+            });
+            h += '</div>';
+            body("p-layouts").innerHTML = h;
+        }
+        function savedWhen(utc) {
+            if (!utc) return "";
+            var dt = new Date(utc); if (isNaN(dt)) return "";
+            return dt.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + dt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        }
+        // Reuse the studio's delete endpoint rather than duplicating it here.
+        window._adminDeleteLayout = function (name) {
+            if (!window.confirm("Delete layout “" + name + "”?")) return;
+            action("/Studio/DeleteLayout", { name: name }, "Delete layout “" + name + "”");
+        };
+
+        function ageOf(utc) {
+            if (!utc) return "";
+            var secs = Math.max(0, (Date.now() - new Date(utc).getTime()) / 1000);
+            if (secs < 90) return Math.round(secs) + "s ago";
+            if (secs < 5400) return Math.round(secs / 60) + "m ago";
+            if (secs < 172800) return Math.round(secs / 3600) + "h ago";
+            return Math.round(secs / 86400) + "d ago";
+        }
+        // Outputs render from their own endpoint (heavier list, refreshed on the same beat).
+        // Only rebuild the DOM when the set actually changes, so playing videos aren't
+        // reloaded out from under the user every poll.
+        var _outSig = null;
+        async function renderOutputs() {
+            try {
+                var d = await (await fetch("/Admin/Outputs")).json();
+                var items = (d && d.items) || [];
+                var sig = items.map(function (it) { return it.path + "|" + it.sizeMb + "|" + it.modifiedUtc; }).join(";");
+                if (sig === _outSig) return;   // unchanged — leave the gallery (and any playback) alone
+                _outSig = sig;
+                if (!items.length) { body("p-outputs").innerHTML = '<div class="muted">No generated clips yet.</div>'; return; }
+                var h = '<div class="gallery">';
+                items.forEach(function (it) {
+                    var src = "/Studio/Preview?path=" + encodeURIComponent(it.path);
+                    var arg = "'" + it.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+                    h += '<div class="clip">'
+                       + '<video preload="metadata" src="' + src + '#t=0.1" controls></video>'
+                       + '<div class="meta"><span class="nm" title="' + esc(it.name) + '">' + esc(it.name) + '</span>'
+                       + '<span class="sz">' + it.sizeMb + ' MB · ' + ageOf(it.modifiedUtc) + '</span>'
+                       + '<span class="x" title="Delete" onclick="_adminDeleteOutput(' + arg + ')">🗑</span></div></div>';
+                });
+                h += '</div>';
+                body("p-outputs").innerHTML = h;
+            } catch (e) {
+                body("p-outputs").innerHTML = '<div class="err">Could not list outputs.</div>';
+            }
+        }
+        window._adminDeleteOutput = function (path) {
+            if (!window.confirm("Delete this clip?\n" + path)) return;
+            action("/Admin/DeleteOutput", { path: path }, "Delete output");
+        };
+
+        async function refresh() {
+            if (busy) return;
+            try {
+                var d = await (await fetch("/Admin/Status")).json();
+                renderBackends(d); renderModel(d); renderSystem(d);
+                renderDiag(d); renderStorage(d); renderLayouts(d);
+                el("updated").textContent = "updated " + new Date().toLocaleTimeString();
+            } catch (e) {
+                el("updated").textContent = "status fetch failed";
+            }
+            renderOutputs();
+        }
+
+        refresh();
+        setInterval(refresh, 4000);
+    })();
+    </script>
+</body>
+</html>
