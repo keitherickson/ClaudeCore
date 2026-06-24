@@ -537,21 +537,31 @@
 
     function starterGraph() {
         graph.clear();
-        var img = LiteGraph.createNode("Image/load_image"); img.pos = [30, 73]; graph.add(img);
-        var snd = LiteGraph.createNode("Sound/load_sound"); snd.pos = [37, 368]; graph.add(snd);
-        var enh = LiteGraph.createNode("Prompts/enhance");  enh.pos = [30, 246]; graph.add(enh);
-        var gen = LiteGraph.createNode("Video/generate");   gen.pos = [320, 73]; graph.add(gen);
-        var up = LiteGraph.createNode("Upscaling/upscale_ai");  up.pos = [685, 74]; graph.add(up);
-        var save = LiteGraph.createNode("Preview Save/save");      save.pos = [697, 209]; save.size = [719, 449]; graph.add(save);
-        var gsnd = LiteGraph.createNode("Sound/sound");     gsnd.pos = [40, 540]; graph.add(gsnd); // parked, unwired
-        // Seed the Enhance Prompt with a sample idea so the default graph runs as-is and
-        // shows the node off (it expands this into a full prompt that feeds Generate).
+        // Sources (left column): an image, a generated sound track, and an enhanced prompt.
+        var img = LiteGraph.createNode("Image/load_image"); img.pos = [40, 60]; graph.add(img);
+        var enh = LiteGraph.createNode("Prompts/enhance");  enh.pos = [40, 320]; graph.add(enh);
+        var gsnd = LiteGraph.createNode("Sound/sound");     gsnd.pos = [40, 560]; graph.add(gsnd);
+        // First clip: generate from image + sound + prompt, then save it.
+        var gen1 = LiteGraph.createNode("Video/generate");  gen1.pos = [400, 60]; graph.add(gen1);
+        var save1 = LiteGraph.createNode("Preview Save/save"); save1.pos = [780, 40]; save1.size = [360, 300]; graph.add(save1);
+        // Continuation: trim the clip's tail, take the final frame, and feed it as the
+        // start image of a second generation — then save that too. The second Save is what
+        // puts Trim Tail upstream of a Save, so the executor actually runs the trim step.
+        var trim = LiteGraph.createNode("Video/trim_tail_frame"); trim.pos = [780, 420]; graph.add(trim);
+        var gen2 = LiteGraph.createNode("Video/generate");  gen2.pos = [1060, 420]; graph.add(gen2);
+        var save2 = LiteGraph.createNode("Preview Save/save"); save2.pos = [1440, 400]; save2.size = [360, 300]; graph.add(save2);
+        // Seed widgets so the default graph passes validation and runs as-is: an idea for
+        // Enhance Prompt (expanded into both Generate prompts) and a Generate Sound prompt.
         if (enh.widgets && enh.widgets[0]) enh.widgets[0].value = "a serene mountain lake at sunrise, mist rising off the water";
-        img.connect(0, gen, 0);   // Load Image -> Generate (image input, slot 0)
-        snd.connect(0, gen, 1);   // Load Sound -> Generate (audio input, slot 1)
-        enh.connect(0, gen, 2);   // Enhance Prompt -> Generate (prompt input, slot 2)
-        gen.connect(0, up, 0);    // Generate -> Upscale (AI)
-        up.connect(0, save, 0);   // Upscale -> Save
+        if (gsnd.widgets && gsnd.widgets[0]) gsnd.widgets[0].value = "gentle lapping water and distant birdsong";
+        img.connect(0, gen1, 0);    // Load Image -> Generate #1 (image input, slot 0)
+        gsnd.connect(0, gen1, 1);   // Generate Sound -> Generate #1 (audio input, slot 1)
+        enh.connect(0, gen1, 2);    // Enhance Prompt -> Generate #1 (prompt input, slot 2)
+        gen1.connect(0, save1, 0);  // Generate #1 -> Save #1
+        gen1.connect(0, trim, 0);   // Generate #1 -> Trim Tail (same output, second link)
+        trim.connect(0, gen2, 0);   // Trim Tail frame -> Generate #2 (image input, i2v continuation)
+        enh.connect(0, gen2, 2);    // Enhance Prompt -> Generate #2 (reuse the prompt)
+        gen2.connect(0, save2, 0);  // Generate #2 -> Save #2 (makes Trim Tail upstream of a Save)
         graph.start();
     }
     starterGraph();
