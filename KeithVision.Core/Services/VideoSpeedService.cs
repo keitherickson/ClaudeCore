@@ -300,6 +300,46 @@ public sealed class VideoSpeedService
     }
 
     /// <summary>
+    /// Removes the last <paramref name="trimSeconds"/> of <paramref name="videoPath"/>, writing the
+    /// shortened clip ("_trim.mp4") alongside it and returning its path. Re-encodes to H.264 so the
+    /// cut is frame-accurate and the result stitches cleanly; keeps audio when present. Backs the
+    /// chained "Trim &amp; Continue ×N" loop node, which trims each segment's tail before conditioning
+    /// the next generation on its final frame. The kept length is clamped to at least one frame, so an
+    /// over-long trim yields a tiny valid clip rather than an empty file; if the duration can't be
+    /// probed it copies the clip through untrimmed.
+    /// </summary>
+    public async Task<string> TrimTailAsync(string videoPath, double trimSeconds, CancellationToken ct = default)
+    {
+        if (!File.Exists(videoPath))
+            throw new FileNotFoundException("Video to trim was not found.", videoPath);
+
+        var info = await TryGetMediaInfoAsync(videoPath, ct);
+        var fps = info is { } mi && mi.Fps > 0 ? mi.Fps : 24;
+        var frameDur = 1.0 / fps;
+        // Keep [0, duration − trim); clamp to at least one frame. 0 => duration unknown, copy through.
+        var keep = info is { } i && i.DurationSec > 0
+            ? Math.Max(frameDur, i.DurationSec - Math.Max(0, trimSeconds))
+            : 0;
+
+        var dir = Path.GetDirectoryName(videoPath)!;
+        var stem = Path.GetFileNameWithoutExtension(videoPath);
+        var outPath = Path.Combine(dir, $"{stem}_trim.mp4");
+        var withAudio = await HasAudioStreamAsync(videoPath, ct);
+
+        var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error", "-i", videoPath };
+        if (keep > 0) args.AddRange(new[] { "-t", keep.ToString("0.######", CultureInfo.InvariantCulture) });
+        args.AddRange(new[] { "-c:v", "libx264", "-pix_fmt", "yuv420p" });
+        if (withAudio) { args.AddRange(new[] { "-c:a", "aac" }); } else { args.Add("-an"); }
+        args.AddRange(new[] { "-movflags", "+faststart", outPath });
+
+        _log.LogInformation("Trim tail: {In} keep={Keep}s (trim={Trim}s) -> {Out}", videoPath, keep, trimSeconds, outPath);
+        var (exit, stderr) = await RunFfmpegAsync(args, ct);
+        if (exit != 0 || !File.Exists(outPath))
+            throw new InvalidOperationException($"ffmpeg trim-tail failed (exit {exit}).\n{stderr}".Trim());
+        return outPath;
+    }
+
+    /// <summary>
     /// Concatenates <paramref name="inputs"/> (in order) into a single H.264 MP4 at
     /// <paramref name="outPath"/> and returns that path. Re-encodes across the seams
     /// so clips from separate LTX generations join cleanly, and keeps audio when the

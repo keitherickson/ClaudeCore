@@ -376,6 +376,46 @@
         if (this.size[0] < 320) this.size[0] = 320;
     });
 
+    // Chained continuation LOOP: generate a clip, trim the last N seconds off it, take the
+    // trimmed clip's final frame, generate the next clip from it — repeated "iterations" times —
+    // then stitch them into one continuous video. Like Extend Video, but cutting each segment's
+    // tail before conditioning the next. The latest conditioning frame previews in the node.
+    define("Video/trim_continue", "Trim & Continue ×N", "#345", function () {
+        this.addInput("image", LiteGraph.IMAGE);   // optional start frame
+        this.addInput("prompt", LiteGraph.TEXT);    // optional (Enhance Prompt overrides the widget)
+        this.addOutput("video", LiteGraph.VIDEO);
+        this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
+        addMultilineText(this, "prompt", "a drone shot flying over a coastline", 5);
+        this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
+        this.addWidget("number", "secPerSeg", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
+        this.addWidget("number", "iterations", 3, null, { min: 2, max: 8, step: 10, precision: 0 });   // X
+        this.addWidget("number", "trimSeconds", 1, null, { min: 0, max: 30, step: 10, precision: 1 });
+        this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
+        // Preview band on top: the latest conditioning frame (emitted as "node-image" each
+        // iteration) draws here so you can watch the chain progress. Widgets sit below it.
+        var IMG_TOP = 28, IMG_H = 110;
+        this.widgets_start_y = IMG_TOP + IMG_H + 8;
+        this.onDrawBackground = function (ctx) {
+            if (this.flags.collapsed) return;
+            var pad = 8, boxW = this.size[0] - pad * 2;
+            ctx.fillStyle = "#1f1f1f"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(pad, IMG_TOP, boxW, IMG_H, 6); else ctx.rect(pad, IMG_TOP, boxW, IMG_H);
+            ctx.fill(); ctx.stroke();
+            if (this._frameImg && this._frameImg.width) {
+                var w = boxW - 4, h = w * (this._frameImg.height / this._frameImg.width);
+                if (h > IMG_H - 4) { h = IMG_H - 4; w = h * (this._frameImg.width / this._frameImg.height); }
+                ctx.drawImage(this._frameImg, (this.size[0] - w) / 2, IMG_TOP + (IMG_H - h) / 2, w, h);
+            } else {
+                ctx.fillStyle = "#666"; ctx.font = "11px Arial"; ctx.textAlign = "center";
+                ctx.fillText("frames appear here on run", this.size[0] / 2, IMG_TOP + IMG_H / 2 + 4); ctx.textAlign = "left";
+            }
+        };
+        this.size = this.computeSize();
+        this.size[1] += IMG_H + 12;              // room for the preview band above the widgets
+        if (this.size[0] < 320) this.size[0] = 320;
+    });
+
     // --- Post-processing ---------------------------------------------------
     // AI upscale (ComfyUI / Real-ESRGAN) — any target resolution. The default.
     define("Upscaling/upscale_ai", "Upscale (AI)", "#534", function () {
@@ -537,31 +577,24 @@
 
     function starterGraph() {
         graph.clear();
-        // Sources (left column): an image, a generated sound track, and an enhanced prompt.
+        // Sources (left column): a start image, an enhanced prompt, and a generated sound track.
         var img = LiteGraph.createNode("Image/load_image"); img.pos = [40, 60]; graph.add(img);
         var enh = LiteGraph.createNode("Prompts/enhance");  enh.pos = [40, 320]; graph.add(enh);
         var gsnd = LiteGraph.createNode("Sound/sound");     gsnd.pos = [40, 560]; graph.add(gsnd);
-        // First clip: generate from image + sound + prompt, then save it.
-        var gen1 = LiteGraph.createNode("Video/generate");  gen1.pos = [400, 60]; graph.add(gen1);
-        var save1 = LiteGraph.createNode("Preview Save/save"); save1.pos = [780, 40]; save1.size = [360, 300]; graph.add(save1);
-        // Continuation: trim the clip's tail, take the final frame, and feed it as the
-        // start image of a second generation — then save that too. The second Save is what
-        // puts Trim Tail upstream of a Save, so the executor actually runs the trim step.
-        var trim = LiteGraph.createNode("Video/trim_tail_frame"); trim.pos = [780, 420]; graph.add(trim);
-        var gen2 = LiteGraph.createNode("Video/generate");  gen2.pos = [1060, 420]; graph.add(gen2);
-        var save2 = LiteGraph.createNode("Preview Save/save"); save2.pos = [1440, 400]; save2.size = [360, 300]; graph.add(save2);
+        // The loop: generate → trim tail → take frame → generate next, repeated "iterations"
+        // times, stitched into one continuous video. Then lay the sound over it and save.
+        var loop = LiteGraph.createNode("Video/trim_continue"); loop.pos = [400, 60]; graph.add(loop);
+        var addaud = LiteGraph.createNode("Sound/add_audio");   addaud.pos = [840, 120]; graph.add(addaud);
+        var save = LiteGraph.createNode("Preview Save/save");   save.pos = [1100, 60]; save.size = [420, 360]; graph.add(save);
         // Seed widgets so the default graph passes validation and runs as-is: an idea for
-        // Enhance Prompt (expanded into both Generate prompts) and a Generate Sound prompt.
+        // Enhance Prompt (expanded into the loop's prompt) and a Generate Sound prompt.
         if (enh.widgets && enh.widgets[0]) enh.widgets[0].value = "a serene mountain lake at sunrise, mist rising off the water";
         if (gsnd.widgets && gsnd.widgets[0]) gsnd.widgets[0].value = "gentle lapping water and distant birdsong";
-        img.connect(0, gen1, 0);    // Load Image -> Generate #1 (image input, slot 0)
-        gsnd.connect(0, gen1, 1);   // Generate Sound -> Generate #1 (audio input, slot 1)
-        enh.connect(0, gen1, 2);    // Enhance Prompt -> Generate #1 (prompt input, slot 2)
-        gen1.connect(0, save1, 0);  // Generate #1 -> Save #1
-        gen1.connect(0, trim, 0);   // Generate #1 -> Trim Tail (same output, second link)
-        trim.connect(0, gen2, 0);   // Trim Tail frame -> Generate #2 (image input, i2v continuation)
-        enh.connect(0, gen2, 2);    // Enhance Prompt -> Generate #2 (reuse the prompt)
-        gen2.connect(0, save2, 0);  // Generate #2 -> Save #2 (makes Trim Tail upstream of a Save)
+        img.connect(0, loop, 0);     // Load Image -> Trim & Continue (start frame, slot 0)
+        enh.connect(0, loop, 1);     // Enhance Prompt -> Trim & Continue (prompt, slot 1)
+        loop.connect(0, addaud, 0);  // Trim & Continue -> Add Audio (video, slot 0)
+        gsnd.connect(0, addaud, 1);  // Generate Sound -> Add Audio (audio, slot 1)
+        addaud.connect(0, save, 0);  // Add Audio -> Save
         graph.start();
     }
     starterGraph();
@@ -718,8 +751,8 @@
         graph._nodes.forEach(function (n) {
             if (!isHookedUp(n)) return;   // only validate nodes wired into the graph
 
-            if (n.type === "Video/generate" || n.type === "Video/extend") {
-                var which = n.type === "Video/extend" ? "Extend" : "Generate";
+            if (n.type === "Video/generate" || n.type === "Video/extend" || n.type === "Video/trim_continue") {
+                var which = n.type === "Video/extend" ? "Extend" : n.type === "Video/trim_continue" ? "Trim & Continue" : "Generate";
                 var model = n.widgets[0] && n.widgets[0].value;
                 var prompt = n.widgets[1] && n.widgets[1].value;
                 // A wired Enhance Prompt supplies the prompt at run time, so the box can be empty then.

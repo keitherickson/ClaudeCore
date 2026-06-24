@@ -264,6 +264,77 @@ public sealed class GraphExecutor
                 await log($"Extend: stitched {segments} segments -> {stitchName}");
                 return stitchPath;
             }
+            case "Video/trim_continue":
+            {
+                // Chained continuation: generate a clip, trim the last N seconds off it, take the
+                // trimmed clip's final frame, generate the next clip from it — repeated "iterations"
+                // times — then stitch the (trimmed) segments into one continuous video.
+                var model = Str(0, "bf16-2.3");
+                await EnsureModelReady(model, log, ct);
+                var reso = Str(2, "540p");
+                var secPerSeg = Num(3, 5);
+                var iterations = Math.Clamp(Num(4, 3), 2, 8);
+                var trim = Math.Max(0, Dbl(5, 1));
+                var aspect = Str(6, "16:9");
+                await log($"Trim & Continue [{model}] {reso} {iterations}×{secPerSeg}s — trimming {trim}s off each segment's tail to condition the next…");
+
+                var segmentPaths = new List<string>();
+                string? condImage = imgIn;
+                for (var s = 0; s < iterations; s++)
+                {
+                    var segReq = new GenerateVideoRequest
+                    {
+                        Prompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn,
+                        Resolution = reso,
+                        Duration = secPerSeg,
+                        Fps = _defaults.Fps,
+                        AspectRatio = aspect,
+                        ImagePath = condImage,
+                    };
+                    var segIndex = s;   // capture for the progress closure
+                    var segTask = _ltx.GenerateAsync(segReq, ct);
+                    while (await Task.WhenAny(segTask, Task.Delay(1500, ct)) != segTask)
+                    {
+                        try
+                        {
+                            var p = await _ltx.GetProgressAsync(ct);
+                            if (p is not null)
+                                await emit(new { type = "node-progress", node = n.id, pct = (int)((segIndex + p.Progress / 100.0) / iterations * 100) });
+                        }
+                        catch { /* progress is best-effort */ }
+                    }
+                    var seg = await segTask;
+
+                    if (s < iterations - 1)
+                    {
+                        // Trim this segment's tail, keep the shortened clip for the stitch, and
+                        // condition the next generation on the trimmed clip's final frame.
+                        var trimmed = await _speed.TrimTailAsync(seg.SavedPath, trim, ct);
+                        condImage = await _speed.ExtractLastFrameAsync(trimmed, _ltx.InputDirectory, ct);
+                        await emit(new { type = "node-image", node = n.id, image = condImage });   // show the latest frame in the node
+                        try { File.Delete(seg.SavedPath); } catch { /* superseded by the trimmed clip */ }
+                        segmentPaths.Add(trimmed);
+                        await log($"  iteration {s + 1}/{iterations}: {Path.GetFileName(trimmed)} (tail trimmed {trim}s)");
+                    }
+                    else
+                    {
+                        // Keep the final segment full, but convert it to H.264 so every input to
+                        // the concat demuxer shares a codec (LTX emits HEVC; the trimmed segments
+                        // above are already H.264). No-op if it's already H.264.
+                        await _speed.ConvertToH264InPlaceAsync(seg.SavedPath, ct);
+                        segmentPaths.Add(seg.SavedPath);
+                        await log($"  iteration {s + 1}/{iterations}: {Path.GetFileName(seg.SavedPath)}");
+                    }
+                }
+
+                var loopName = $"studio_continue_{DateTime.Now:yyyyMMdd_HHmmss}_{iterations}x.mp4";
+                var loopPath = _ltx.GetOutputFilePath(loopName);
+                await _speed.ConcatAsync(segmentPaths, loopPath, ct);
+                foreach (var p in segmentPaths)
+                    try { File.Delete(p); } catch { /* best effort — segments are superseded by the stitch */ }
+                await log($"Trim & Continue: stitched {iterations} segments -> {loopName}");
+                return loopPath;
+            }
             case "Upscaling/upscale_ai":
             {
                 if (vidIn is null) { await log("Upscale (AI): no video input — skipped"); return null; }
