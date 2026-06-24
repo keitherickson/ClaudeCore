@@ -32,8 +32,8 @@ TEMPERATURE = float(os.environ.get("PROMPT_TEMPERATURE", "0.8"))
 GEN_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 app = FastAPI()
-state = {"model": None, "tokenizer": None, "device": GEN_DEVICE, "error": None}
-_gen_lock = threading.Lock()   # serialize generations (one decode on the model at a time)
+state = {"model": None, "tokenizer": None, "model_id": None, "device": GEN_DEVICE, "error": None}
+_gen_lock = threading.Lock()   # serialize generations + model swaps (one resident model at a time)
 
 # Short style hints appended to the user's idea (kept terse so the model leads, not the preset).
 STYLE_GUIDANCE = {
@@ -56,20 +56,38 @@ class EnhanceRequest(BaseModel):
     text: str
     style: str | None = None
     maxTokens: int | None = None
+    model: str | None = None   # optional per-request model id; swaps the resident model
+
+
+def _load(model_id):
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(model_id)
+    dtype = torch.float16 if GEN_DEVICE == "cuda" else torch.float32
+    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype).to(GEN_DEVICE)
+    model.eval()
+    return tok, model
+
+
+def _ensure_model(model_id):
+    """Swap the resident model if a different id is requested. Caller must hold _gen_lock.
+    Frees the current model first — one 7B fits the 4090, two may not."""
+    if not model_id or model_id == state["model_id"]:
+        return
+    state["model"] = None
+    state["tokenizer"] = None
+    if GEN_DEVICE == "cuda":
+        torch.cuda.empty_cache()
+    tok, model = _load(model_id)
+    state["tokenizer"], state["model"], state["model_id"] = tok, model, model_id
+    print(f"[prompt_server] switched model -> {model_id}", flush=True)
 
 
 @app.on_event("startup")
 def load_model():
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        tok = AutoTokenizer.from_pretrained(MODEL_ID)
-        dtype = torch.float16 if GEN_DEVICE == "cuda" else torch.float32
-        model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=dtype).to(GEN_DEVICE)
-        model.eval()
-
-        state["tokenizer"] = tok
-        state["model"] = model
+        tok, model = _load(MODEL_ID)
+        state["tokenizer"], state["model"], state["model_id"] = tok, model, MODEL_ID
         print(f"[prompt_server] loaded {MODEL_ID} on {GEN_DEVICE} (resident)", flush=True)
     except Exception as e:  # surfaced via /health rather than crashing the server
         state["error"] = repr(e)
@@ -81,7 +99,7 @@ def health():
     return {
         "status": "ok" if state["model"] is not None else "error",
         "model_loaded": state["model"] is not None,
-        "model": MODEL_ID,
+        "model": state["model_id"] or MODEL_ID,
         "device": state["device"],
         "error": state["error"],
     }
@@ -100,10 +118,17 @@ def enhance(req: EnhanceRequest):
     extra = STYLE_GUIDANCE.get(style, "")
     user = text if not extra else f"{text}\n\nStyle: {extra}"
     max_new = req.maxTokens if (req.maxTokens and req.maxTokens > 0) else MAX_TOKENS
+    requested = (req.model or "").strip()
 
-    tok = state["tokenizer"]
-    model = state["model"]
     with _gen_lock:
+        if requested and requested != state["model_id"]:
+            try:
+                _ensure_model(requested)
+            except Exception as e:
+                return JSONResponse(status_code=500, content={"error": f"failed to load model '{requested}': {e!r}"})
+
+        tok = state["tokenizer"]
+        model = state["model"]
         messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
         inputs = tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to(GEN_DEVICE)
         with torch.no_grad():

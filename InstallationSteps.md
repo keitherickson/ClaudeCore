@@ -351,6 +351,20 @@ GPU pin: `LocalAudio:GpuIndex` (default `1`); set to `0` on a single-GPU box (se
 
 ---
 
+## 10. Self-hosted prompt enhancer — local LLM (4090) ✅
+
+Rewrite a short idea into a vivid text-to-video prompt on the local GPU (no API key/cost). Local Python server `tools/prompt_server.py` (FastAPI + transformers) on `127.0.0.1:8771`, launched by `tools/run-prompt-server.ps1`; started on demand from `/Admin` **or auto-started** on first use by `PromptEnhanceService`. Drives the studio's **Enhance Prompt** node, whose `TEXT` output feeds a Generate/Extend Video `prompt` input. Runs on the **4090** alongside the audio server, leaving the 5090 for video.
+
+**Environment** (venv `C:\ClaudeCore\prompt-venv`):
+1. `py -3.11 -m venv C:\ClaudeCore\prompt-venv`
+2. `C:\ClaudeCore\prompt-venv\Scripts\python -m pip install transformers accelerate fastapi uvicorn` **plus torch for Blackwell** (`--extra-index-url https://download.pytorch.org/whl/cu128`, same wheel as the audio venv — the Blackwell build isn't on PyPI).
+
+**Model** — default `Qwen/Qwen2.5-7B-Instruct` (open, no license wall), downloaded from HF on first run (~15 GB) and cached under `C:\Users\keith\.cache\huggingface`. Override per-server with the `PROMPT_MODEL` env var, or **per node** via the Enhance Prompt node's `model` dropdown (the server swaps models on demand — the first use of a new id pays the load cost). `tools/run-prompt-server.ps1` sets `HF_HUB_DISABLE_XET=1` (the xet backend stalls here, same lesson as the audio setup).
+
+GPU pin: pinned to the **RTX 4090 by name** in `tools/run-prompt-server.ps1` (`-GpuName "RTX 4090"`, resolved via `tools/gpu-common.ps1`), falling back to `LocalLlm:GpuIndex` (default `1`).
+
+---
+
 ## Change log
 
 - **2026-06-13** — Initial setup: git/GitHub + CLI, .NET app to GitHub (Version 1). LTX-2.3 generation integrated. Home/Privacy removed; Video is landing page. Resolution-aware duration/fps. NVIDIA Maxine upscaling wrapper added. Document created; added a Downloads index with links to every prerequisite.

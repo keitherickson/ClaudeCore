@@ -56,11 +56,12 @@ public sealed class PromptEnhanceService
     }
 
     /// <summary>
-    /// Returns an enhanced version of <paramref name="text"/>. Auto-starts the server if
-    /// it's down and waits for the model to load. Never returns empty — falls back to the
-    /// original text on any failure so a generation can still proceed.
+    /// Returns an enhanced version of <paramref name="text"/>. A non-empty
+    /// <paramref name="model"/> asks the server to use that model id (swapping if needed).
+    /// Auto-starts the server if it's down and waits for the model to load. Never returns
+    /// empty — falls back to the original text on any failure so a generation can proceed.
     /// </summary>
-    public async Task<string> EnhanceAsync(string text, string? style, CancellationToken ct = default)
+    public async Task<string> EnhanceAsync(string text, string? style, string? model, CancellationToken ct = default)
     {
         text = (text ?? string.Empty).Trim();
         if (text.Length == 0) return text;
@@ -68,7 +69,7 @@ public sealed class PromptEnhanceService
         await EnsureUpAsync(ct);
         try
         {
-            var enhanced = (await _client.EnhanceAsync(text, style, _options.MaxTokens, ct) ?? string.Empty).Trim();
+            var enhanced = (await _client.EnhanceAsync(text, style, model, _options.MaxTokens, ct) ?? string.Empty).Trim();
             return enhanced.Length == 0 ? text : enhanced;
         }
         catch (Exception ex)

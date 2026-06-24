@@ -333,6 +333,15 @@
         this.addOutput("prompt", LiteGraph.TEXT);
         addMultilineText(this, "idea", "", 4);   // the short idea to expand
         this.addWidget("combo", "style", "cinematic", null, { values: ["cinematic", "photoreal", "anime", "vivid", "none"] });
+        // Which local model to use. "(default)" keeps the server's configured/loaded model;
+        // any other id makes the server swap to it (the first use of a new id pays the load cost).
+        this.addWidget("combo", "model", "(default)", null, { values: [
+            "(default)",
+            "Qwen/Qwen2.5-7B-Instruct",
+            "Qwen/Qwen2.5-3B-Instruct",
+            "meta-llama/Llama-3.1-8B-Instruct",
+            "mistralai/Mistral-7B-Instruct-v0.3"
+        ] });
         this.size = this.computeSize();
         if (this.size[0] < 300) this.size[0] = 300;
     });

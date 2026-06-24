@@ -22,10 +22,13 @@ public sealed class LocalLlmClient
         return await resp.Content.ReadAsStringAsync(ct);
     }
 
-    /// <summary>Rewrites <paramref name="text"/> into a vivid prompt; returns the enhanced text.</summary>
-    public async Task<string> EnhanceAsync(string text, string? style, int maxTokens, CancellationToken ct = default)
+    /// <summary>
+    /// Rewrites <paramref name="text"/> into a vivid prompt; returns the enhanced text.
+    /// A non-empty <paramref name="model"/> asks the server to swap to that model id first.
+    /// </summary>
+    public async Task<string> EnhanceAsync(string text, string? style, string? model, int maxTokens, CancellationToken ct = default)
     {
-        var body = new EnhanceRequest(text, style, maxTokens);
+        var body = new EnhanceRequest(text, style, maxTokens, model);
         using var resp = await _http.PostAsJsonAsync("/enhance", body, JsonOpts, ct);
         if (!resp.IsSuccessStatusCode)
         {
@@ -36,6 +39,6 @@ public sealed class LocalLlmClient
         return doc?.Prompt ?? text;
     }
 
-    private sealed record EnhanceRequest(string Text, string? Style, int MaxTokens);
+    private sealed record EnhanceRequest(string Text, string? Style, int MaxTokens, string? Model);
     private sealed record EnhanceResponse(string Prompt);
 }

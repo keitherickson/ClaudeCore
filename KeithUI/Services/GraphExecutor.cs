@@ -309,8 +309,10 @@ public sealed class GraphExecutor
                 var idea = Str(0);
                 if (string.IsNullOrWhiteSpace(idea)) { await log("Enhance Prompt: empty — skipped"); return null; }
                 var style = Str(1, "cinematic");
-                await log($"Enhance Prompt [{style}]: \"{idea}\"…");
-                var enhanced = await _prompt.EnhanceAsync(idea, style, ct);
+                var model = Str(2);   // "" / "(default)" => the server's configured model
+                if (string.Equals(model, "(default)", StringComparison.OrdinalIgnoreCase)) model = "";
+                await log($"Enhance Prompt [{style}{(string.IsNullOrEmpty(model) ? "" : ", " + model)}]: \"{idea}\"…");
+                var enhanced = await _prompt.EnhanceAsync(idea, style, model, ct);
                 await log($"Enhance Prompt → {enhanced}");
                 return enhanced;
             }
