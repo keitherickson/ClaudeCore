@@ -509,12 +509,17 @@
         graph.clear();
         var img = LiteGraph.createNode("Image/load_image"); img.pos = [30, 73]; graph.add(img);
         var snd = LiteGraph.createNode("Sound/load_sound"); snd.pos = [37, 368]; graph.add(snd);
-        var gen = LiteGraph.createNode("Video/generate");   gen.pos = [298, 73]; graph.add(gen);
-        var up = LiteGraph.createNode("Upscaling/upscale_ai");  up.pos = [663, 74]; graph.add(up);
-        var save = LiteGraph.createNode("Preview Save/save");      save.pos = [675, 209]; save.size = [719, 449]; graph.add(save);
-        var gsnd = LiteGraph.createNode("Sound/sound");     gsnd.pos = [40, 510]; graph.add(gsnd); // parked, unwired
+        var enh = LiteGraph.createNode("Prompts/enhance");  enh.pos = [30, 246]; graph.add(enh);
+        var gen = LiteGraph.createNode("Video/generate");   gen.pos = [320, 73]; graph.add(gen);
+        var up = LiteGraph.createNode("Upscaling/upscale_ai");  up.pos = [685, 74]; graph.add(up);
+        var save = LiteGraph.createNode("Preview Save/save");      save.pos = [697, 209]; save.size = [719, 449]; graph.add(save);
+        var gsnd = LiteGraph.createNode("Sound/sound");     gsnd.pos = [40, 540]; graph.add(gsnd); // parked, unwired
+        // Seed the Enhance Prompt with a sample idea so the default graph runs as-is and
+        // shows the node off (it expands this into a full prompt that feeds Generate).
+        if (enh.widgets && enh.widgets[0]) enh.widgets[0].value = "a serene mountain lake at sunrise, mist rising off the water";
         img.connect(0, gen, 0);   // Load Image -> Generate (image input, slot 0)
         snd.connect(0, gen, 1);   // Load Sound -> Generate (audio input, slot 1)
+        enh.connect(0, gen, 2);   // Enhance Prompt -> Generate (prompt input, slot 2)
         gen.connect(0, up, 0);    // Generate -> Upscale (AI)
         up.connect(0, save, 0);   // Upscale -> Save
         graph.start();
