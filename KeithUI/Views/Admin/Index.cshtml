@@ -138,6 +138,12 @@
             h += '<div class="row">' + dot(backendState(d.audio)) + '<span class="k">Stable Audio</span>'
                + '<span class="v">' + (d.audio.reachable ? "model loaded" : d.audio.portListening ? "starting" : "stopped") + ' · :' + d.audio.port + '</span></div>';
             if (d.audio.error) h += '<div class="err">' + esc(d.audio.error) + '</div>';
+            // Prompt-enhancer LLM
+            if (d.prompt) {
+                h += '<div class="row">' + dot(backendState(d.prompt)) + '<span class="k">Prompt LLM</span>'
+                   + '<span class="v">' + (d.prompt.reachable ? "model loaded" : d.prompt.portListening ? "starting" : "stopped") + ' · :' + d.prompt.port + '</span></div>';
+                if (d.prompt.error) h += '<div class="err">' + esc(d.prompt.error) + '</div>';
+            }
             // Live generation strip — only meaningful while a clip is rendering.
             var g = d.generation;
             if (g && g.status && g.status !== "idle") {
@@ -158,6 +164,8 @@
                + '<button class="ghost" onclick="_adminAction(\'/Admin/RestartLtx\', null, \'Restart LTX\')">Restart LTX</button>'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/StartAudio\', null, \'Start audio\')">Start audio</button>'
                + '<button class="danger" onclick="_adminAction(\'/Admin/StopAudio\', null, \'Stop audio\')">Stop audio</button>'
+               + '<button class="ghost" onclick="_adminAction(\'/Admin/StartPrompt\', null, \'Start prompt LLM\')">Start prompt LLM</button>'
+               + '<button class="danger" onclick="_adminAction(\'/Admin/StopPrompt\', null, \'Stop prompt LLM\')">Stop prompt LLM</button>'
                + '</div>';
             body("p-backends").innerHTML = h;
         }

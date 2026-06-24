@@ -32,18 +32,22 @@ public class AdminController : Controller
     private readonly SystemStatsService _stats;
     private readonly LayoutStore _layouts;
     private readonly RunRegistry _runs;
+    private readonly PromptServerControl _promptControl;
+    private readonly PromptEnhanceService _promptSvc;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
         LtxVideoService ltx, LtxServerControl ltxControl, ComfyUiServerControl comfyControl,
         AudioServerControl audioControl, SoundGenService soundGen, VideoBackendCoordinator backends,
         ActiveModelStore activeModel, IOptions<VideoModelsOptions> videoModels, MaxineUpscaleService maxine,
-        VideoSpeedService speed, SystemStatsService stats, LayoutStore layouts, RunRegistry runs, ILogger<AdminController> logger)
+        VideoSpeedService speed, SystemStatsService stats, LayoutStore layouts, RunRegistry runs,
+        PromptServerControl promptControl, PromptEnhanceService promptSvc, ILogger<AdminController> logger)
     {
         _ltx = ltx; _ltxControl = ltxControl; _comfyControl = comfyControl;
         _audioControl = audioControl; _soundGen = soundGen; _backends = backends;
         _activeModel = activeModel; _videoModels = videoModels.Value; _maxine = maxine;
-        _speed = speed; _stats = stats; _layouts = layouts; _runs = runs; _logger = logger;
+        _speed = speed; _stats = stats; _layouts = layouts; _runs = runs;
+        _promptControl = promptControl; _promptSvc = promptSvc; _logger = logger;
     }
 
     [HttpGet]
@@ -74,6 +78,10 @@ public class AdminController : Controller
         // --- ComfyUI server (NVFP4 / Wan / AI-upscale share it) ---
         var comfy = new { portListening = _comfyControl.IsPortListening(), port = _comfyControl.Port, gpuIndex = _comfyControl.GpuIndex };
 
+        // --- Prompt-enhancer LLM server (on-demand; shares the 4090 with audio) ---
+        var (promptOk, promptErr) = await _promptSvc.GetHealthAsync(ct);
+        var prompt = new { reachable = promptOk, portListening = _promptControl.IsPortListening(), port = _promptControl.Port, error = promptErr };
+
         var maxineReady = _maxine.IsReady(out var maxineProblem);
         var ffmpegReady = _speed.IsReady(out var ffmpegProblem);
 
@@ -100,6 +108,7 @@ public class AdminController : Controller
             ltx,
             audio,
             comfy,
+            prompt,
             maxine = new { ready = maxineReady, error = maxineProblem },
             ffmpeg = new { ready = ffmpegReady, error = ffmpegProblem, path = _speed.FfmpegPath },
             gpu = await GetGpuAsync(ct),
@@ -218,6 +227,22 @@ public class AdminController : Controller
     public async Task<IActionResult> StopAudio(CancellationToken ct)
     {
         var r = await _audioControl.StopAsync(ct);
+        return Json(new { ok = r.Ok, output = r.Output });
+    }
+
+    /// <summary>Starts the local prompt-enhancer server (detached; the model loads in the background).</summary>
+    [HttpPost]
+    public IActionResult StartPrompt()
+    {
+        var ok = _promptControl.StartDetached();
+        return Json(new { ok, error = ok ? null : "Prompt start script not found." });
+    }
+
+    /// <summary>Stops the local prompt-enhancer server (frees its VRAM). Returns the script output.</summary>
+    [HttpPost]
+    public async Task<IActionResult> StopPrompt(CancellationToken ct)
+    {
+        var r = await _promptControl.StopAsync(ct);
         return Json(new { ok = r.Ok, output = r.Output });
     }
 

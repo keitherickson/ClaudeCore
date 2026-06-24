@@ -108,6 +108,20 @@ public static class ServiceCollectionExtensions
         // Start/stop control for the audio server (Admin page); not an auto-start service.
         services.AddSingleton<AudioServerControl>();
 
+        // Self-hosted prompt-enhancer LLM: a local Python server (tools/run-prompt-server.ps1)
+        // on the 4090 that rewrites a short idea into a vivid text-to-video prompt. Generous
+        // timeout since the first call can include the model load.
+        services.Configure<LocalLlmOptions>(configuration.GetSection(LocalLlmOptions.SectionName));
+        services.AddHttpClient<LocalLlmClient>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<LocalLlmOptions>>().Value;
+            client.BaseAddress = new Uri(opts.BaseUrl);
+            client.Timeout = TimeSpan.FromMinutes(opts.TimeoutMinutes);
+        });
+        services.AddScoped<PromptEnhanceService>();
+        // Start/stop + auto-start control for the prompt server (Admin page + on-demand).
+        services.AddSingleton<PromptServerControl>();
+
         return services;
     }
 }

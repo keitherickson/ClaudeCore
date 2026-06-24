@@ -9,11 +9,12 @@
     var SAVE_VIDEO_TOP = 80;
 
     // Port type colors (so the wires read like ComfyUI).
-    LiteGraph.IMAGE = "IMAGE"; LiteGraph.AUDIO = "AUDIO"; LiteGraph.VIDEO = "VIDEO";
+    LiteGraph.IMAGE = "IMAGE"; LiteGraph.AUDIO = "AUDIO"; LiteGraph.VIDEO = "VIDEO"; LiteGraph.TEXT = "TEXT";
     if (LGraphCanvas.link_type_colors) {
         LGraphCanvas.link_type_colors.IMAGE = "#7ac";
         LGraphCanvas.link_type_colors.AUDIO = "#caa84a";
         LGraphCanvas.link_type_colors.VIDEO = "#4caf76";
+        LGraphCanvas.link_type_colors.TEXT = "#b07ad0";
     }
 
     function define(type, title, color, build) {
@@ -326,9 +327,20 @@
     });
 
     // --- Generate ----------------------------------------------------------
+    // Local LLM (on the 4090) rewrites a short idea into a vivid prompt. Wire its TEXT
+    // output into a Generate/Extend Video "prompt" input to override that node's prompt box.
+    define("Prompts/enhance", "Enhance Prompt", "#556", function () {
+        this.addOutput("prompt", LiteGraph.TEXT);
+        addMultilineText(this, "idea", "", 4);   // the short idea to expand
+        this.addWidget("combo", "style", "cinematic", null, { values: ["cinematic", "photoreal", "anime", "vivid", "none"] });
+        this.size = this.computeSize();
+        if (this.size[0] < 300) this.size[0] = 300;
+    });
+
     define("Video/generate", "Generate Video", "#345", function () {
         this.addInput("image", LiteGraph.IMAGE);   // optional (i2v / Wan)
         this.addInput("audio", LiteGraph.AUDIO);    // optional (audio-to-video)
+        this.addInput("prompt", LiteGraph.TEXT);    // optional (Enhance Prompt overrides the widget)
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
         addMultilineText(this, "prompt", "", 5);
@@ -343,6 +355,7 @@
     // conditioned on the previous segment's last frame, then all are stitched.
     define("Video/extend", "Extend Video", "#345", function () {
         this.addInput("image", LiteGraph.IMAGE);   // optional start frame (i2v / Wan)
+        this.addInput("prompt", LiteGraph.TEXT);    // optional (Enhance Prompt overrides the widget)
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
         addMultilineText(this, "prompt", "a drone shot flying over a coastline", 5);
@@ -645,8 +658,9 @@
                 var which = n.type === "Video/extend" ? "Extend" : "Generate";
                 var model = n.widgets[0] && n.widgets[0].value;
                 var prompt = n.widgets[1] && n.widgets[1].value;
-                if (!prompt || !String(prompt).trim())
-                    issues.push({ node: n.id, msg: which + " Video needs a prompt — add one before running." });
+                // A wired Enhance Prompt supplies the prompt at run time, so the box can be empty then.
+                if ((!prompt || !String(prompt).trim()) && !isLinked(n, "prompt"))
+                    issues.push({ node: n.id, msg: which + " Video needs a prompt — type one, or wire an Enhance Prompt node into its prompt input." });
                 if (model === "wan2.2" && !isLinked(n, "image"))
                     issues.push({ node: n.id, msg: "Wan 2.2 is image-to-video — connect a Load Image to the " + which + " node (or pick BF16/NVFP4)." });
                 // Audio-to-video only works on the BF16 backend (NVFP4 is text-only, Wan is image-only).
@@ -682,6 +696,11 @@
                 var lay = n.widgets && n.widgets[0] && n.widgets[0].value;
                 if (!lay || !String(lay).trim())
                     issues.push({ node: n.id, msg: "Run Group has no layout selected — pick a saved layout (or save one first)." });
+            }
+            if (n.type === "Prompts/enhance") {
+                var idea = n.widgets && n.widgets[0] && n.widgets[0].value;
+                if (!idea || !String(idea).trim())
+                    issues.push({ node: n.id, msg: "Enhance Prompt needs an idea — type a short description to expand." });
             }
         });
         return issues;

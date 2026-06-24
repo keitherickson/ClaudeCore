@@ -21,6 +21,7 @@ public sealed class GraphExecutor
     private readonly ComfyUiUpscaleService _aiUpscale;
     private readonly VideoSpeedService _speed;
     private readonly SoundGenService _sound;
+    private readonly PromptEnhanceService _prompt;   // for the "Enhance Prompt" node (local LLM on the 4090)
     private readonly VideoDefaultsOptions _defaults;
     private readonly LayoutStore _layouts;   // for the "Run Group" node (a saved layout = a config file)
     private readonly ILogger<GraphExecutor> _log;
@@ -28,11 +29,11 @@ public sealed class GraphExecutor
     public GraphExecutor(
         LtxVideoService ltx, ActiveModelStore activeModel, VideoBackendCoordinator coordinator,
         MaxineUpscaleService maxine, ComfyUiUpscaleService aiUpscale, VideoSpeedService speed,
-        SoundGenService sound, IOptions<VideoDefaultsOptions> defaults, LayoutStore layouts, ILogger<GraphExecutor> log)
+        SoundGenService sound, PromptEnhanceService prompt, IOptions<VideoDefaultsOptions> defaults, LayoutStore layouts, ILogger<GraphExecutor> log)
     {
         _ltx = ltx; _activeModel = activeModel; _coordinator = coordinator;
         _maxine = maxine; _aiUpscale = aiUpscale; _speed = speed; _sound = sound;
-        _defaults = defaults.Value; _layouts = layouts; _log = log;
+        _prompt = prompt; _defaults = defaults.Value; _layouts = layouts; _log = log;
     }
 
     private const int MaxGroupDepth = 8;   // guard against deep/recursive Run Group chains
@@ -150,6 +151,7 @@ public sealed class GraphExecutor
         inputs.TryGetValue("image", out var imgIn);
         inputs.TryGetValue("audio", out var audIn);
         inputs.TryGetValue("video", out var vidIn);
+        inputs.TryGetValue("prompt", out var promptIn);   // wired Enhance Prompt output (overrides the widget)
 
         switch (n.type)
         {
@@ -183,7 +185,7 @@ public sealed class GraphExecutor
                 await EnsureModelReady(model, log, ct);
                 var req = new GenerateVideoRequest
                 {
-                    Prompt = Str(1),
+                    Prompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn,
                     Resolution = Str(2, "540p"),
                     Duration = Num(3, 5),
                     Fps = _defaults.Fps,
@@ -223,7 +225,7 @@ public sealed class GraphExecutor
                 {
                     var segReq = new GenerateVideoRequest
                     {
-                        Prompt = Str(1),
+                        Prompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn,
                         Resolution = reso,
                         Duration = secPerSeg,
                         Fps = _defaults.Fps,
@@ -299,6 +301,18 @@ public sealed class GraphExecutor
                 var dubbed = await _speed.MuxAudioAsync(vidIn, audIn, ct);
                 await log($"Add Audio: {Path.GetFileName(audIn)} -> {Path.GetFileName(dubbed)}");
                 return dubbed;
+            }
+            case "Prompts/enhance":
+            {
+                // Local LLM (4090) rewrites the idea into a vivid prompt; the string output
+                // flows along the edge into a Generate/Extend Video "prompt" input.
+                var idea = Str(0);
+                if (string.IsNullOrWhiteSpace(idea)) { await log("Enhance Prompt: empty — skipped"); return null; }
+                var style = Str(1, "cinematic");
+                await log($"Enhance Prompt [{style}]: \"{idea}\"…");
+                var enhanced = await _prompt.EnhanceAsync(idea, style, ct);
+                await log($"Enhance Prompt → {enhanced}");
+                return enhanced;
             }
             case "Groups/run_group":
             {
