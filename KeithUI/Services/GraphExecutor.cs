@@ -148,6 +148,10 @@ public sealed class GraphExecutor
         var w = n.widgets_values ?? new();
         string Str(int i, string d = "") => i < w.Count && w[i].ValueKind == JsonValueKind.String ? w[i].GetString() ?? d : d;
         int Num(int i, int d) => i < w.Count && w[i].ValueKind == JsonValueKind.Number ? w[i].GetInt32() : d;
+        double Dbl(int i, double d) => i >= w.Count ? d
+            : w[i].ValueKind == JsonValueKind.Number ? w[i].GetDouble()
+            : w[i].ValueKind == JsonValueKind.String && double.TryParse(w[i].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v
+            : d;
         inputs.TryGetValue("image", out var imgIn);
         inputs.TryGetValue("audio", out var audIn);
         inputs.TryGetValue("video", out var vidIn);
@@ -293,6 +297,17 @@ public sealed class GraphExecutor
                 var r = await _speed.RetimeAsync(vidIn, factor, ct);
                 await log($"Speed Up [{factor}x]: {Path.GetFileName(r.SavedPath)}");
                 return r.SavedPath;
+            }
+            case "Video/trim_tail_frame":
+            {
+                // Remove the last N seconds of the clip and emit the final remaining frame as
+                // an image (the frame at duration − N). VIDEO in, IMAGE out.
+                if (vidIn is null) { await log("Trim Tail → Frame: no video input — skipped"); return null; }
+                var trim = Math.Max(0, Dbl(0, 1));
+                var frame = await _speed.ExtractFrameBeforeTailAsync(vidIn, trim, _ltx.InputDirectory, ct);
+                await emit(new { type = "node-image", node = n.id, image = frame });   // show it in the node
+                await log($"Trim Tail → Frame: removed last {trim}s -> {Path.GetFileName(frame)}");
+                return frame;
             }
             case "Sound/add_audio":
             {

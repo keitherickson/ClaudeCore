@@ -400,6 +400,36 @@
         this.size = [200, 60];
     });
 
+    // Trim the last N seconds off a clip and emit the final remaining frame as an
+    // image (the frame at duration − seconds). VIDEO in, IMAGE out — wire the output
+    // into a Generate/Extend Video "image" input to continue from just before a clip
+    // ends, or save it. The produced frame previews inside the node once the run hits it.
+    define("Video/trim_tail_frame", "Trim Tail → Frame", "#454", function () {
+        this.addInput("video", LiteGraph.VIDEO);
+        this.addOutput("image", LiteGraph.IMAGE);
+        this.addWidget("number", "trimSeconds", 1, null, { min: 0, max: 600, step: 10, precision: 1 });
+        // Preview band on top (filled in by the "node-image" run event), widgets below it.
+        var IMG_TOP = 28, IMG_H = 120;
+        this.widgets_start_y = IMG_TOP + IMG_H + 8;
+        this.onDrawBackground = function (ctx) {
+            if (this.flags.collapsed) return;
+            var pad = 8, boxW = this.size[0] - pad * 2;
+            ctx.fillStyle = "#1f1f1f"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(pad, IMG_TOP, boxW, IMG_H, 6); else ctx.rect(pad, IMG_TOP, boxW, IMG_H);
+            ctx.fill(); ctx.stroke();
+            if (this._frameImg && this._frameImg.width) {
+                var w = boxW - 4, h = w * (this._frameImg.height / this._frameImg.width);
+                if (h > IMG_H - 4) { h = IMG_H - 4; w = h * (this._frameImg.width / this._frameImg.height); }
+                ctx.drawImage(this._frameImg, (this.size[0] - w) / 2, IMG_TOP + (IMG_H - h) / 2, w, h);
+            } else {
+                ctx.fillStyle = "#666"; ctx.font = "11px Arial"; ctx.textAlign = "center";
+                ctx.fillText("frame appears here on run", this.size[0] / 2, IMG_TOP + IMG_H / 2 + 4); ctx.textAlign = "left";
+            }
+        };
+        this.size = [220, 200];
+    });
+
     // Lay a sound track over a finished clip: copies the video through and muxes
     // the audio onto it (capped to the video's length). Unlike Generate Video's
     // audio input — which conditions generation — this just dubs an existing clip.
@@ -621,6 +651,15 @@
             case "node-result":   // a Preview Save node received a clip -> play it in the node
                 setNodeVideo(ev.node, "/Studio/Preview?path=" + encodeURIComponent(ev.video));
                 break;
+            case "node-image": {   // a Trim Tail → Frame node produced a frame -> show it in the node
+                var imgNode = graph.getNodeById(parseInt(ev.node, 10));
+                if (imgNode) {
+                    imgNode._frameImg = new Image();
+                    imgNode._frameImg.onload = function () { imgNode.setDirtyCanvas(true, true); };
+                    imgNode._frameImg.src = "/Studio/Image?path=" + encodeURIComponent(ev.image);
+                }
+                break;
+            }
             case "node-error":
                 nodeStatus[ev.node] = "error";
                 statusEl.textContent = "Error at node " + ev.node + ": " + ev.error;
@@ -646,6 +685,7 @@
         "Upscaling/upscale_ai": { slot: "video", label: "Upscale (AI)" },
         "Upscaling/upscale_maxine": { slot: "video", label: "Upscale (MAXINE)" },
         "Speed/speed": { slot: "video", label: "Speed Up" },
+        "Video/trim_tail_frame": { slot: "video", label: "Trim Tail → Frame" },
         "Sound/add_audio": { slot: "video", label: "Add Audio" },
     };
     function isLinked(n, slotName) {

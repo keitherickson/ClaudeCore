@@ -254,6 +254,52 @@ public sealed class VideoSpeedService
     }
 
     /// <summary>
+    /// Removes the last <paramref name="trimSeconds"/> of <paramref name="videoPath"/> and
+    /// extracts the final remaining frame as a PNG into <paramref name="destDir"/>, returning
+    /// its path. The image is the frame at (duration − trimSeconds) — i.e. the last frame of
+    /// the clip once its tail is cut off. Backs the studio "Trim Tail → Frame" node. The seek
+    /// is clamped into the clip, so a trim ≥ the clip length yields the first frame and a
+    /// zero/negative trim yields the true last frame (same as <see cref="ExtractLastFrameAsync"/>).
+    /// Falls back to a plain last-frame extract if the duration can't be probed.
+    /// </summary>
+    public async Task<string> ExtractFrameBeforeTailAsync(string videoPath, double trimSeconds, string destDir, CancellationToken ct = default)
+    {
+        if (!File.Exists(videoPath))
+            throw new FileNotFoundException("Video to trim was not found.", videoPath);
+
+        var info = await TryGetMediaInfoAsync(videoPath, ct);
+        // No reliable duration => we can't measure the tail; fall back to the last frame.
+        if (info is not { } i || i.DurationSec <= 0)
+            return await ExtractLastFrameAsync(videoPath, destDir, ct);
+
+        Directory.CreateDirectory(destDir);
+        var outPath = Path.Combine(destDir, $"trimframe_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.png");
+
+        // The remaining clip after the cut is [0, duration − trim); its last frame sits one
+        // frame-duration before that boundary. Clamp the seek into [0, duration − frameDur]
+        // so an over-long trim lands on the first frame and a 0s trim lands on the last.
+        var fps = i.Fps > 0 ? i.Fps : 24;
+        var frameDur = 1.0 / fps;
+        var seek = Math.Clamp(i.DurationSec - Math.Max(0, trimSeconds) - frameDur, 0, Math.Max(0, i.DurationSec - frameDur));
+        var ss = seek.ToString("0.######", CultureInfo.InvariantCulture);
+
+        // -ss before -i is an accurate seek in modern ffmpeg (decodes from the prior keyframe),
+        // so -frames:v 1 grabs the single frame at that position.
+        var args = new List<string>
+        {
+            "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", ss, "-i", videoPath,
+            "-frames:v", "1", "-q:v", "2", "-an",
+            outPath,
+        };
+        _log.LogInformation("Trim-tail frame: {In} dur={Dur}s trim={Trim}s -> frame@{Ss}s -> {Out}", videoPath, i.DurationSec, trimSeconds, ss, outPath);
+        var (exit, stderr) = await RunFfmpegAsync(args, ct);
+        if (exit != 0 || !File.Exists(outPath))
+            throw new InvalidOperationException($"ffmpeg trim-tail frame extract failed (exit {exit}).\n{stderr}".Trim());
+        return outPath;
+    }
+
+    /// <summary>
     /// Concatenates <paramref name="inputs"/> (in order) into a single H.264 MP4 at
     /// <paramref name="outPath"/> and returns that path. Re-encodes across the seams
     /// so clips from separate LTX generations join cleanly, and keeps audio when the
