@@ -17,15 +17,25 @@
 .PARAMETER Gpu
     Physical GPU index (CUDA device ordinal) to pin this server to. Exported as
     CUDA_VISIBLE_DEVICES so the LTX video model loads on that GPU only, leaving the
-    other GPU free for the audio server. Must match "Ltx:GpuIndex" in appsettings.json.
+    other GPU free for the audio server. Used as a fallback when -GpuName can't resolve.
+
+.PARAMETER GpuName
+    Preferred way to pick the card: a GPU model substring (e.g. "RTX 5090"). Resolved to
+    its CUDA index by name (slot-order-proof) and used in preference to -Gpu, so video
+    generation always lands on the 5090 regardless of PCIe slot order.
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8765,
-    [int]$Gpu  = 0
+    [int]$Port       = 8765,
+    [int]$Gpu        = 0,
+    [string]$GpuName = "RTX 5090"
 )
 
 $ErrorActionPreference = "Stop"
+
+# Pick the card by NAME first (slot-order-proof), falling back to the -Gpu index.
+. (Join-Path $PSScriptRoot "gpu-common.ps1")
+if ($GpuName) { $Gpu = Resolve-GpuIndex -Name $GpuName -Fallback $Gpu }
 
 $Python  = "C:\Users\keith\AppData\Local\LTXDesktop\python\python.exe"
 $Launch  = Join-Path $PSScriptRoot "ltx_launch.py"   # space-free path; inserts the backend on sys.path

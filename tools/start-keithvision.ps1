@@ -13,6 +13,10 @@ $LtxLaunch = "C:\ClaudeCore\ClaudeCore\tools\ltx_launch.py"
 $LogDir    = "C:\ClaudeCore\logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
+# Resolve the 5090's CUDA index by name (slot-order-proof) for the LTX launch below.
+. (Join-Path $PSScriptRoot "gpu-common.ps1")
+$LtxGpu = Resolve-GpuIndex -Name "RTX 5090" -Fallback 0
+
 function Port-Listening($port) {
     [bool](Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
 }
@@ -48,7 +52,7 @@ function Start-Detached {
     return ($res.ReturnValue -eq 0)
 }
 
-# 1. LTX-2.3 generation server on :8765 (pinned to GPU 0; matches Ltx:GpuIndex).
+# 1. LTX-2.3 generation server on :8765 (pinned to the 5090 by name, resolved above).
 #    Launched detached (see Start-Detached) and retried until the port actually
 #    comes up, so a failed or early-exiting start self-heals instead of leaving
 #    the app with no video backend.
@@ -57,7 +61,7 @@ if ((Test-Path $LtxPy) -and -not (Port-Listening 8765)) {
         LTX_APP_DATA_DIR     = "C:\Users\keith\AppData\Local\LTXDesktop"
         LTX_PORT             = "8765"
         CUDA_DEVICE_ORDER    = "PCI_BUS_ID"   # stable index across mixed 5090/4090
-        CUDA_VISIBLE_DEVICES = "0"
+        CUDA_VISIBLE_DEVICES = "$LtxGpu"      # the 5090, resolved by name
     }
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         Start-Detached -FilePath $LtxPy -Arguments @("-u", $LtxLaunch) `

@@ -97,6 +97,16 @@ public sealed class MaxineUpscaleService
         var extra = new[] { _o.SdkBinDir, _o.OpenCvBinDir }.Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p));
         psi.Environment["PATH"] = string.Join(';', extra) + ";" + Environment.GetEnvironmentVariable("PATH");
 
+        // Pin Maxine (video upscaling) to the 5090. Resolve the card by NAME so it's
+        // robust to PCIe slot order; CUDA_DEVICE_ORDER=PCI_BUS_ID makes nvidia-smi's
+        // index match the CUDA ordinal we set. No-op if nvidia-smi/card isn't found.
+        if (!string.IsNullOrWhiteSpace(_o.GpuName) && ResolveGpuIndexByName(_o.GpuName) is int gpuIdx)
+        {
+            psi.Environment["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID";
+            psi.Environment["CUDA_VISIBLE_DEVICES"] = gpuIdx.ToString(CultureInfo.InvariantCulture);
+            _log.LogInformation("Maxine pinned to GPU {Idx} ({Name})", gpuIdx, _o.GpuName);
+        }
+
         var cmd = $"\"{_o.ExecutablePath}\" {string.Join(' ', args)}";
         _log.LogInformation("Maxine upscale: {Cmd}", cmd);
 
@@ -131,4 +141,38 @@ public sealed class MaxineUpscaleService
     }
 
     public string GetOutputFilePath(string name) => Path.Combine(_o.OutputDirectory, Path.GetFileName(name));
+
+    /// <summary>
+    /// Resolves a GPU model name (substring, e.g. "RTX 5090") to its CUDA device ordinal
+    /// via nvidia-smi. nvidia-smi's index matches the CUDA ordinal under
+    /// CUDA_DEVICE_ORDER=PCI_BUS_ID (which we set on the child process), so pinning by
+    /// name is slot-order-proof. Returns null if nvidia-smi is unavailable or no card matches.
+    /// </summary>
+    private static int? ResolveGpuIndexByName(string name)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "nvidia-smi",
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            foreach (var a in new[] { "--query-gpu=index,name", "--format=csv,noheader" }) psi.ArgumentList.Add(a);
+            using var p = Process.Start(psi);
+            if (p is null) return null;
+            var outText = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(5000);
+            foreach (var raw in outText.Split('\n'))
+            {
+                var parts = raw.Trim().Split(',', 2);
+                if (parts.Length == 2
+                    && parts[1].Trim().Contains(name, StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(parts[0].Trim(), out var idx))
+                    return idx;
+            }
+        }
+        catch { /* nvidia-smi missing or failed — leave Maxine on its default device */ }
+        return null;
+    }
 }

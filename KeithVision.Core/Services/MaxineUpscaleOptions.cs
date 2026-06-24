@@ -33,6 +33,13 @@ public sealed class MaxineUpscaleOptions
     /// <summary>Output video FourCC codec (avc1 = H.264, browser-friendly). Empty = app default.</summary>
     public string Codec { get; set; } = "avc1";
 
+    /// <summary>
+    /// GPU model name (substring, e.g. "RTX 5090") to pin upscaling to — resolved to its
+    /// CUDA index by name (slot-order-proof) and exported as CUDA_VISIBLE_DEVICES for the
+    /// VideoEffectsApp child process. Empty = let the SDK pick its default device.
+    /// </summary>
+    public string GpuName { get; set; } = "RTX 5090";
+
     /// <summary>Max minutes to wait for a single upscale job.</summary>
     public int TimeoutMinutes { get; set; } = 60;
 }

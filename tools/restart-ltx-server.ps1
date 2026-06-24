@@ -16,12 +16,17 @@
 
 .PARAMETER Gpu
     Physical GPU index (CUDA device ordinal) to pin the relaunched server to,
-    exported as CUDA_VISIBLE_DEVICES. Must match Ltx:GpuIndex in appsettings.json.
+    exported as CUDA_VISIBLE_DEVICES. Used as a fallback when -GpuName can't resolve.
+
+.PARAMETER GpuName
+    Preferred way to pick the card: a GPU model substring (e.g. "RTX 5090"). Resolved to
+    its CUDA index by name (slot-order-proof) and used in preference to -Gpu.
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8765,
-    [int]$Gpu  = 0
+    [int]$Port       = 8765,
+    [int]$Gpu        = 0,
+    [string]$GpuName = "RTX 5090"
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +40,10 @@ foreach ($p in @($LtxPy, $LtxLaunch, $AppData)) {
     if (-not (Test-Path $p)) { throw "Required path not found: $p" }
 }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+
+# Pick the card by NAME first (slot-order-proof), falling back to the -Gpu index.
+. (Join-Path $PSScriptRoot "gpu-common.ps1")
+if ($GpuName) { $Gpu = Resolve-GpuIndex -Name $GpuName -Fallback $Gpu }
 
 function Get-PortPids([int]$p) {
     @(Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue |

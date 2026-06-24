@@ -20,12 +20,18 @@
 .PARAMETER Gpu
     Physical GPU index (CUDA device ordinal) to pin this server to. Exported as
     CUDA_VISIBLE_DEVICES so the audio model loads on that GPU only, separate from the
-    LTX video server's GPU. Must match "LocalAudio:GpuIndex" in appsettings.json.
+    LTX video server's GPU. Used as a fallback when -GpuName can't be resolved.
+
+.PARAMETER GpuName
+    Preferred way to pick the card: a GPU model substring (e.g. "RTX 4090"). Resolved to
+    its CUDA index by name (slot-order-proof) and used in preference to -Gpu, so audio
+    always lands on the 4090 even if the cards enumerate in a different order.
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8770,
-    [int]$Gpu  = 1
+    [int]$Port       = 8770,
+    [int]$Gpu        = 1,
+    [string]$GpuName = "RTX 4090"
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,11 +45,13 @@ foreach ($p in @($Python, $Server)) {
     }
 }
 
-# The requested GPU may not exist yet — GpuIndex defaults to 1 (the planned 4090),
-# but on the current single-GPU box only index 0 is present. Pinning to a missing
-# index hides every CUDA device and the model silently loads on CPU (painfully slow
-# — a long clip then blows the request timeout). Fall back to GPU 0 in that case;
-# once the 4090 is installed the index is valid and used as-is.
+# Pick the card by NAME first (slot-order-proof), falling back to the -Gpu index.
+. (Join-Path $PSScriptRoot "gpu-common.ps1")
+if ($GpuName) { $Gpu = Resolve-GpuIndex -Name $GpuName -Fallback $Gpu }
+
+# Safety net: pinning to a missing index hides every CUDA device and the model
+# silently loads on CPU (painfully slow — a long clip then blows the request
+# timeout). If the chosen index isn't present, fall back to GPU 0.
 try {
     $gpuCount = (@(& nvidia-smi --query-gpu=index --format=csv,noheader 2>$null)).Count
     if ($gpuCount -gt 0 -and $Gpu -ge $gpuCount) {
