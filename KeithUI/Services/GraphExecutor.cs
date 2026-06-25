@@ -24,28 +24,30 @@ public sealed class GraphExecutor
     private readonly PromptEnhanceService _prompt;   // for the "Enhance Prompt" node (local LLM on the 4090)
     private readonly VideoDefaultsOptions _defaults;
     private readonly LayoutStore _layouts;   // for the "Run Group" node (a saved layout = a config file)
+    private readonly RunRegistry _runs;      // for the loop node's pause-between-iterations gate
     private readonly ILogger<GraphExecutor> _log;
 
     public GraphExecutor(
         LtxVideoService ltx, ActiveModelStore activeModel, VideoBackendCoordinator coordinator,
         MaxineUpscaleService maxine, ComfyUiUpscaleService aiUpscale, VideoSpeedService speed,
-        SoundGenService sound, PromptEnhanceService prompt, IOptions<VideoDefaultsOptions> defaults, LayoutStore layouts, ILogger<GraphExecutor> log)
+        SoundGenService sound, PromptEnhanceService prompt, IOptions<VideoDefaultsOptions> defaults, LayoutStore layouts, RunRegistry runs, ILogger<GraphExecutor> log)
     {
         _ltx = ltx; _activeModel = activeModel; _coordinator = coordinator;
         _maxine = maxine; _aiUpscale = aiUpscale; _speed = speed; _sound = sound;
-        _prompt = prompt; _defaults = defaults.Value; _layouts = layouts; _log = log;
+        _prompt = prompt; _defaults = defaults.Value; _layouts = layouts; _runs = runs; _log = log;
     }
 
     private const int MaxGroupDepth = 8;   // guard against deep/recursive Run Group chains
 
-    /// <summary>Runs the top-level graph, calling <paramref name="emit"/> for each event.</summary>
-    public async Task RunAsync(JsonElement graphJson, Func<object, Task> emit, CancellationToken ct)
+    /// <summary>Runs the top-level graph, calling <paramref name="emit"/> for each event.
+    /// <paramref name="runId"/> (when supplied) lets pausing nodes await a Continue request.</summary>
+    public async Task RunAsync(JsonElement graphJson, Func<object, Task> emit, CancellationToken ct, string? runId = null)
     {
         Task Log(string t) => emit(new { type = "log", text = t });
         try
         {
             var graph = graphJson.Deserialize<LGraph>(Web) ?? new LGraph();
-            var finalVideo = await ExecuteGraphAsync(graph, emit, Log, depth: 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase), ct);
+            var finalVideo = await ExecuteGraphAsync(graph, emit, Log, depth: 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase), runId, ct);
             await emit(new { type = "done", finalVideo, ok = true });
         }
         catch (Exception ex)
@@ -63,7 +65,7 @@ public sealed class GraphExecutor
     /// <paramref name="groupChain"/> is the set of layout names already on the stack, so a
     /// group can't recurse into itself; <paramref name="depth"/> bounds nesting.
     /// </summary>
-    private async Task<string?> ExecuteGraphAsync(LGraph graph, Func<object, Task> emit, Func<string, Task> Log, int depth, HashSet<string> groupChain, CancellationToken ct)
+    private async Task<string?> ExecuteGraphAsync(LGraph graph, Func<object, Task> emit, Func<string, Task> Log, int depth, HashSet<string> groupChain, string? runId, CancellationToken ct)
     {
         var linkMap = new Dictionary<long, (long node, int slot)>();
         foreach (var l in graph.links)
@@ -119,7 +121,7 @@ public sealed class GraphExecutor
                 await emit(new { type = "node-start", node = n.id });
                 try
                 {
-                    var produced = await ExecuteNode(n, inputs, emit, Log, depth, groupChain, ct);
+                    var produced = await ExecuteNode(n, inputs, emit, Log, depth, groupChain, runId, ct);
                     if (produced is not null) outputs[n.id] = produced;
                     if (n.type == "Preview Save/save" && inputs.TryGetValue("video", out var fv))
                     {
@@ -143,7 +145,7 @@ public sealed class GraphExecutor
         return finalVideo ?? outputs.Values.LastOrDefault();
     }
 
-    private async Task<string?> ExecuteNode(LNode n, Dictionary<string, string> inputs, Func<object, Task> emit, Func<string, Task> log, int depth, HashSet<string> groupChain, CancellationToken ct)
+    private async Task<string?> ExecuteNode(LNode n, Dictionary<string, string> inputs, Func<object, Task> emit, Func<string, Task> log, int depth, HashSet<string> groupChain, string? runId, CancellationToken ct)
     {
         var w = n.widgets_values ?? new();
         string Str(int i, string d = "") => i < w.Count && w[i].ValueKind == JsonValueKind.String ? w[i].GetString() ?? d : d;
@@ -152,6 +154,7 @@ public sealed class GraphExecutor
             : w[i].ValueKind == JsonValueKind.Number ? w[i].GetDouble()
             : w[i].ValueKind == JsonValueKind.String && double.TryParse(w[i].GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v
             : d;
+        bool Bool(int i, bool d) => i < w.Count && w[i].ValueKind is JsonValueKind.True or JsonValueKind.False ? w[i].GetBoolean() : d;
         inputs.TryGetValue("image", out var imgIn);
         inputs.TryGetValue("audio", out var audIn);
         inputs.TryGetValue("video", out var vidIn);
@@ -276,15 +279,18 @@ public sealed class GraphExecutor
                 var iterations = Math.Clamp(Num(4, 3), 2, 8);
                 var trim = Math.Max(0, Dbl(5, 1));
                 var aspect = Str(6, "16:9");
-                await log($"Trim & Continue [{model}] {reso} {iterations}×{secPerSeg}s — trimming {trim}s off each segment's tail to condition the next…");
+                var pauseEach = Bool(7, false);   // pause after each iteration to adjust the prompt
+                await log($"Trim & Continue [{model}] {reso} {iterations}×{secPerSeg}s — trimming {trim}s off each segment's tail to condition the next{(pauseEach ? ", pausing between iterations" : "")}…");
 
                 var segmentPaths = new List<string>();
                 string? condImage = imgIn;
+                var currentPrompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn;
+                var stoppedEarly = false;
                 for (var s = 0; s < iterations; s++)
                 {
                     var segReq = new GenerateVideoRequest
                     {
-                        Prompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn,
+                        Prompt = currentPrompt,
                         Resolution = reso,
                         Duration = secPerSeg,
                         Fps = _defaults.Fps,
@@ -315,6 +321,19 @@ public sealed class GraphExecutor
                         try { File.Delete(seg.SavedPath); } catch { /* superseded by the trimmed clip */ }
                         segmentPaths.Add(trimmed);
                         await log($"  iteration {s + 1}/{iterations}: {Path.GetFileName(trimmed)} (tail trimmed {trim}s)");
+
+                        // Pause point: let the operator review the frame and set the next prompt,
+                        // or finish now with what's been produced. A separate Continue request
+                        // releases the gate (see RunRegistry / StudioController.Continue).
+                        if (pauseEach && runId is not null)
+                        {
+                            _runs.ArmPause(runId);
+                            await emit(new { type = "iteration-paused", node = n.id, iteration = s + 1, total = iterations, image = condImage, prompt = currentPrompt });
+                            await log($"Paused after iteration {s + 1}/{iterations} — adjust the prompt and continue, or finish now.");
+                            var signal = await _runs.WaitForContinueAsync(runId, ct);
+                            if (signal.Stop) { stoppedEarly = true; await log($"Trim & Continue: finishing early after {s + 1} iteration(s) at your request."); break; }
+                            if (!string.IsNullOrWhiteSpace(signal.Prompt)) { currentPrompt = signal.Prompt!; await log($"  next prompt → {currentPrompt}"); }
+                        }
                     }
                     else
                     {
@@ -327,12 +346,13 @@ public sealed class GraphExecutor
                     }
                 }
 
-                var loopName = $"studio_continue_{DateTime.Now:yyyyMMdd_HHmmss}_{iterations}x.mp4";
+                var produced = segmentPaths.Count;
+                var loopName = $"studio_continue_{DateTime.Now:yyyyMMdd_HHmmss}_{produced}x.mp4";
                 var loopPath = _ltx.GetOutputFilePath(loopName);
                 await _speed.ConcatAsync(segmentPaths, loopPath, ct);
                 foreach (var p in segmentPaths)
                     try { File.Delete(p); } catch { /* best effort — segments are superseded by the stitch */ }
-                await log($"Trim & Continue: stitched {iterations} segments -> {loopName}");
+                await log($"Trim & Continue: stitched {produced} segment(s){(stoppedEarly ? " (stopped early)" : "")} -> {loopName}");
                 return loopPath;
             }
             case "Upscaling/upscale_ai":
@@ -432,7 +452,7 @@ public sealed class GraphExecutor
                         return Task.CompletedTask;   // drop node-start/done/error/result from the sub-graph
                     };
 
-                    var result = await ExecuteGraphAsync(sub, subEmit, log, depth + 1, groupChain, ct);
+                    var result = await ExecuteGraphAsync(sub, subEmit, log, depth + 1, groupChain, runId, ct);
                     await log($"Run Group '{name}': {(result is null ? "(no video output)" : Path.GetFileName(result))}");
                     return result;
                 }

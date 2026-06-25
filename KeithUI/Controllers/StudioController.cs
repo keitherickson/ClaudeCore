@@ -63,13 +63,28 @@ public class StudioController : Controller
         try
         {
             await Emit(new { type = "run", id = runId });
-            await _executor.RunAsync(graph, Emit, token);
+            await _executor.RunAsync(graph, Emit, token, runId);
         }
         finally
         {
             _runs.Unregister(runId);
         }
     }
+
+    /// <summary>
+    /// Releases a run that is paused between loop iterations (the "Trim &amp; Continue" node with
+    /// pause-each-step on). Supplies the prompt for the next iteration, or stops the loop early so
+    /// it stitches what's already produced. Returns ok=false if the run isn't currently paused.
+    /// </summary>
+    [HttpPost]
+    public IActionResult Continue([FromBody] ContinueRunRequest? req)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.Id)) return BadRequest(new { ok = false, error = "missing run id" });
+        var released = _runs.Continue(req.Id, new RunRegistry.ContinueSignal(req.Prompt, req.Stop));
+        return Json(new { ok = released });
+    }
+
+    public sealed record ContinueRunRequest(string Id, string? Prompt, bool Stop);
 
     /// <summary>Streams a produced clip for the Save/Preview node (guarded to the output tree).</summary>
     [HttpGet]

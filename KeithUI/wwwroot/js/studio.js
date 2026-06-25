@@ -391,6 +391,9 @@
         this.addWidget("number", "iterations", 3, null, { min: 2, max: 8, step: 10, precision: 0 });   // X
         this.addWidget("number", "trimSeconds", 1, null, { min: 0, max: 30, step: 10, precision: 1 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
+        // When on, the run pauses after each iteration so you can review the frame and set the
+        // prompt for the next one (or finish early). Index 7 — read as Bool(7) by the executor.
+        this.addWidget("toggle", "pauseEachStep", false, null, { on: "yes", off: "no" });
         // Preview band on top: the latest conditioning frame (emitted as "node-image" each
         // iteration) draws here so you can watch the chain progress. Widgets sit below it.
         var IMG_TOP = 28, IMG_H = 110;
@@ -701,6 +704,31 @@
                     imgNode._frameImg.onload = function () { imgNode.setDirtyCanvas(true, true); };
                     imgNode._frameImg.src = "/Studio/Image?path=" + encodeURIComponent(ev.image);
                 }
+                break;
+            }
+            case "iteration-paused": {   // loop paused — review the frame, set the next prompt, or finish
+                nodeProgress[ev.node] = (ev.iteration / ev.total) * 100;
+                statusEl.textContent = "Paused after iteration " + ev.iteration + "/" + ev.total + " — set the next prompt…";
+                lgcanvas.setDirty(true, true);
+                // The conditioning frame is already showing in the node (via node-image). Defer the
+                // blocking prompt one tick so the canvas repaints that frame first; OK = continue
+                // with the typed prompt, Cancel = finish now and stitch what's been produced.
+                var pausedEv = ev;
+                setTimeout(function () {
+                    var np = window.prompt(
+                        "Paused after iteration " + pausedEv.iteration + " of " + pausedEv.total + ".\n\n" +
+                        "Edit the prompt for the NEXT iteration and press OK to continue,\n" +
+                        "or press Cancel to finish now and stitch what's done.", pausedEv.prompt || "");
+                    var body = (np === null)
+                        ? { id: currentRunId, prompt: null, stop: true }
+                        : { id: currentRunId, prompt: np, stop: false };
+                    statusEl.textContent = (np === null) ? "Finishing…" : "Continuing iteration " + (pausedEv.iteration + 1) + "/" + pausedEv.total + "…";
+                    fetch("/Studio/Continue", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body)
+                    }).catch(function () { statusEl.textContent = "Couldn't reach the server to continue."; });
+                }, 60);
                 break;
             }
             case "node-error":
