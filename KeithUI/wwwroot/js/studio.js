@@ -385,14 +385,19 @@
         this.addInput("prompt", LiteGraph.TEXT);    // optional (Enhance Prompt overrides the widget)
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
-        addMultilineText(this, "prompt", "a drone shot flying over a coastline", 5);
+        // Raw idea (widget 1): enhanced into the "enhanced" field on the first run, and
+        // overridable by a wired prompt input. The "enhanced" field (widget 2) is what actually
+        // drives generation — filled by the enhancer on run, and editable at a pause (used as-is
+        // from then on, no re-enhancement).
+        addMultilineText(this, "prompt", "a drone shot flying over a coastline", 3);
+        addMultilineText(this, "enhanced", "", 4);
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
         this.addWidget("number", "secPerSeg", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
         this.addWidget("number", "iterations", 3, null, { min: 2, max: 8, step: 10, precision: 0 });   // X
         this.addWidget("number", "trimSeconds", 1, null, { min: 0, max: 30, step: 10, precision: 1 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
-        // When on, the run pauses after each iteration so you can review the frame and set the
-        // prompt for the next one (or finish early). Index 7 — read as Bool(7) by the executor.
+        // When on, the run pauses after each iteration so you can review the frame and edit the
+        // enhanced prompt for the next one (or finish early). Index 8 — read as Bool(8) by the executor.
         this.addWidget("toggle", "pauseEachStep", false, null, { on: "yes", off: "no" });
         // Preview band on top: the latest conditioning frame (emitted as "node-image" each
         // iteration) draws here so you can watch the chain progress. Widgets sit below it.
@@ -580,25 +585,25 @@
 
     function starterGraph() {
         graph.clear();
-        // Sources (left column): a start image, an enhanced prompt, and a generated sound track.
+        // Sources (left column): a start image and a generated sound track. The loop now does
+        // its own prompt enhancement, so there's no separate Enhance Prompt node here.
         var img = LiteGraph.createNode("Image/load_image"); graph.add(img);
-        var enh = LiteGraph.createNode("Prompts/enhance");  graph.add(enh);
         var gsnd = LiteGraph.createNode("Sound/sound");     graph.add(gsnd);
         // The loop: generate → trim tail → take frame → generate next, repeated "iterations"
         // times, stitched into one continuous video. Then lay the sound over it and save.
         var loop = LiteGraph.createNode("Video/trim_continue"); graph.add(loop);
         var addaud = LiteGraph.createNode("Sound/add_audio");   graph.add(addaud);
         var save = LiteGraph.createNode("Preview Save/save");   save.size = [420, 360]; graph.add(save);
-        // Seed widgets so the default graph passes validation and runs as-is: an idea for
-        // Enhance Prompt (expanded into the loop's prompt) and a Generate Sound prompt.
-        if (enh.widgets && enh.widgets[0]) enh.widgets[0].value = "a serene mountain lake at sunrise, mist rising off the water";
+        // Seed widgets so the default graph passes validation and runs as-is: a raw idea for the
+        // loop (it enhances this into its "enhanced" field on the first run) and a Sound prompt.
         if (gsnd.widgets && gsnd.widgets[0]) gsnd.widgets[0].value = "gentle lapping water and distant birdsong";
-        // Default to the retry loop: 4 iterations, pausing after each segment so you can
-        // review the conditioning frame and adjust/retry the prompt before continuing.
+        // Default to the retry loop: 4 iterations, pausing after each segment so you can review
+        // the conditioning frame and adjust/retry the enhanced prompt before continuing.
         var setW = function (node, name, val) {
             var wgt = (node.widgets || []).find(function (x) { return x.name === name; });
             if (wgt) wgt.value = val;
         };
+        setW(loop, "prompt", "a serene mountain lake at sunrise, mist rising off the water");
         setW(loop, "iterations", 4);
         setW(loop, "pauseEachStep", true);
         // Lay the graph out in left→right columns using each node's ACTUAL size, so nothing
@@ -607,7 +612,7 @@
         (function layout() {
             var X0 = 40, Y0 = 60, COL_GAP = 90, ROW_GAP = 45;
             var y = Y0, leftW = 0;
-            [img, enh, gsnd].forEach(function (n) {
+            [img, gsnd].forEach(function (n) {
                 n.pos = [X0, y];
                 y += n.size[1] + ROW_GAP;
                 leftW = Math.max(leftW, n.size[0]);
@@ -617,7 +622,6 @@
             save.pos   = [addaud.pos[0] + addaud.size[0] + COL_GAP, Y0];
         })();
         img.connect(0, loop, 0);     // Load Image -> Trim & Continue (start frame, slot 0)
-        enh.connect(0, loop, 1);     // Enhance Prompt -> Trim & Continue (prompt, slot 1)
         loop.connect(0, addaud, 0);  // Trim & Continue -> Add Audio (video, slot 0)
         gsnd.connect(0, addaud, 1);  // Generate Sound -> Add Audio (audio, slot 1)
         addaud.connect(0, save, 0);  // Add Audio -> Save
@@ -729,7 +733,15 @@
                 }
                 break;
             }
-            case "iteration-paused": {   // loop paused — review the frame, set the next prompt, or finish
+            case "node-prompt": {   // executor reports the active/enhanced prompt -> show it in the node's "enhanced" field
+                var promptNode = graph.getNodeById(parseInt(ev.node, 10));
+                if (promptNode) {
+                    var ew = (promptNode.widgets || []).find(function (x) { return x.name === "enhanced"; });
+                    if (ew) ew.value = ev.enhanced || "";
+                }
+                break;
+            }
+            case "iteration-paused": {   // loop paused — review the frame, edit the enhanced prompt, or finish
                 nodeProgress[ev.node] = (ev.iteration / ev.total) * 100;
                 statusEl.textContent = "Paused after iteration " + ev.iteration + "/" + ev.total + " — set the next prompt…";
                 lgcanvas.setDirty(true, true);
@@ -740,8 +752,15 @@
                 setTimeout(function () {
                     var np = window.prompt(
                         "Paused after iteration " + pausedEv.iteration + " of " + pausedEv.total + ".\n\n" +
-                        "Edit the prompt for the NEXT iteration and press OK to continue,\n" +
+                        "Edit the ENHANCED prompt for the NEXT segment and press OK to continue (used as-is),\n" +
                         "or press Cancel to finish now and stitch what's done.", pausedEv.prompt || "");
+                    if (np !== null) {   // reflect the edit straight into the node's "enhanced" field
+                        var pNode = graph.getNodeById(parseInt(pausedEv.node, 10));
+                        if (pNode) {
+                            var pew = (pNode.widgets || []).find(function (x) { return x.name === "enhanced"; });
+                            if (pew) pew.value = np;
+                        }
+                    }
                     var body = (np === null)
                         ? { id: currentRunId, prompt: null, stop: true }
                         : { id: currentRunId, prompt: np, stop: false };

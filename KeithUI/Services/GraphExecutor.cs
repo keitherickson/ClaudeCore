@@ -274,20 +274,29 @@ public sealed class GraphExecutor
                 // times — then stitch the (trimmed) segments into one continuous video.
                 var model = Str(0, "bf16-2.3");
                 await EnsureModelReady(model, log, ct);
-                var reso = Str(2, "540p");
-                var secPerSeg = Num(3, 5);
-                var iterations = Math.Clamp(Num(4, 3), 2, 8);
-                var trim = Math.Max(0, Dbl(5, 1));
-                var aspect = Str(6, "16:9");
-                var pauseEach = Bool(7, false);   // pause after each iteration to adjust the prompt
+                var reso = Str(3, "540p");
+                var secPerSeg = Num(4, 5);
+                var iterations = Math.Clamp(Num(5, 3), 2, 8);
+                var trim = Math.Max(0, Dbl(6, 1));
+                var aspect = Str(7, "16:9");
+                var pauseEach = Bool(8, false);   // pause after each iteration to edit the enhanced prompt
                 await log($"Trim & Continue [{model}] {reso} {iterations}×{secPerSeg}s — trimming {trim}s off each segment's tail to condition the next{(pauseEach ? ", pausing between iterations" : "")}…");
 
                 var segmentPaths = new List<string>();
                 string? condImage = imgIn;
-                var currentPrompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn;
+                // The node carries a raw "prompt" (widget 1, overridable by a wired prompt input) and an
+                // editable "enhanced" field (widget 2). On the first run we enhance the raw idea into the
+                // enhanced field and generate from it; at each pause the operator's edited text replaces
+                // it and is used as-is (no re-enhancement). With no raw idea, fall back to the enhanced field.
+                var rawPrompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn;
+                var currentPrompt = !string.IsNullOrWhiteSpace(rawPrompt)
+                    ? await _prompt.EnhanceAsync(rawPrompt, null, null, ct)
+                    : Str(2);
+                await log($"Trim & Continue: enhanced prompt → {currentPrompt}");
                 var stoppedEarly = false;
                 for (var s = 0; s < iterations; s++)
                 {
+                    await emit(new { type = "node-prompt", node = n.id, enhanced = currentPrompt });   // reflect the active prompt in the node's "enhanced" field
                     var segReq = new GenerateVideoRequest
                     {
                         Prompt = currentPrompt,
