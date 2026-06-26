@@ -581,18 +581,41 @@
     function starterGraph() {
         graph.clear();
         // Sources (left column): a start image, an enhanced prompt, and a generated sound track.
-        var img = LiteGraph.createNode("Image/load_image"); img.pos = [40, 60]; graph.add(img);
-        var enh = LiteGraph.createNode("Prompts/enhance");  enh.pos = [40, 320]; graph.add(enh);
-        var gsnd = LiteGraph.createNode("Sound/sound");     gsnd.pos = [40, 560]; graph.add(gsnd);
+        var img = LiteGraph.createNode("Image/load_image"); graph.add(img);
+        var enh = LiteGraph.createNode("Prompts/enhance");  graph.add(enh);
+        var gsnd = LiteGraph.createNode("Sound/sound");     graph.add(gsnd);
         // The loop: generate → trim tail → take frame → generate next, repeated "iterations"
         // times, stitched into one continuous video. Then lay the sound over it and save.
-        var loop = LiteGraph.createNode("Video/trim_continue"); loop.pos = [400, 60]; graph.add(loop);
-        var addaud = LiteGraph.createNode("Sound/add_audio");   addaud.pos = [840, 120]; graph.add(addaud);
-        var save = LiteGraph.createNode("Preview Save/save");   save.pos = [1100, 60]; save.size = [420, 360]; graph.add(save);
+        var loop = LiteGraph.createNode("Video/trim_continue"); graph.add(loop);
+        var addaud = LiteGraph.createNode("Sound/add_audio");   graph.add(addaud);
+        var save = LiteGraph.createNode("Preview Save/save");   save.size = [420, 360]; graph.add(save);
         // Seed widgets so the default graph passes validation and runs as-is: an idea for
         // Enhance Prompt (expanded into the loop's prompt) and a Generate Sound prompt.
         if (enh.widgets && enh.widgets[0]) enh.widgets[0].value = "a serene mountain lake at sunrise, mist rising off the water";
         if (gsnd.widgets && gsnd.widgets[0]) gsnd.widgets[0].value = "gentle lapping water and distant birdsong";
+        // Default to the retry loop: 4 iterations, pausing after each segment so you can
+        // review the conditioning frame and adjust/retry the prompt before continuing.
+        var setW = function (node, name, val) {
+            var wgt = (node.widgets || []).find(function (x) { return x.name === name; });
+            if (wgt) wgt.value = val;
+        };
+        setW(loop, "iterations", 4);
+        setW(loop, "pauseEachStep", true);
+        // Lay the graph out in left→right columns using each node's ACTUAL size, so nothing
+        // overlaps regardless of how tall the loop/enhance nodes compute. Sources stack in the
+        // left column; loop, add-audio, and save follow in their own columns with fixed gaps.
+        (function layout() {
+            var X0 = 40, Y0 = 60, COL_GAP = 90, ROW_GAP = 45;
+            var y = Y0, leftW = 0;
+            [img, enh, gsnd].forEach(function (n) {
+                n.pos = [X0, y];
+                y += n.size[1] + ROW_GAP;
+                leftW = Math.max(leftW, n.size[0]);
+            });
+            loop.pos   = [X0 + leftW + COL_GAP, Y0];
+            addaud.pos = [loop.pos[0] + loop.size[0] + COL_GAP, Y0 + 80];
+            save.pos   = [addaud.pos[0] + addaud.size[0] + COL_GAP, Y0];
+        })();
         img.connect(0, loop, 0);     // Load Image -> Trim & Continue (start frame, slot 0)
         enh.connect(0, loop, 1);     // Enhance Prompt -> Trim & Continue (prompt, slot 1)
         loop.connect(0, addaud, 0);  // Trim & Continue -> Add Audio (video, slot 0)
