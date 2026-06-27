@@ -1,37 +1,48 @@
 <#
 .SYNOPSIS
-    "Run on 4090" profile: do generation on the RTX 4090 (+ CPU/RAM) and leave the
-    RTX 5090 free for gaming.
+    "Run on 4090" profile: split generation across both cards while gaming on the 5090.
 
 .DESCRIPTION
-    Pins the LTX-2.3 BF16 video server to the 4090 and (re)starts the KeithVision app
-    and the KeithUI studio with the KEITHVISION_PROFILE=4090 config layer
-    (appsettings.4090.json -> Ltx:GpuIndex/GpuName = the 4090).
+    Dedicates the RTX 4090 to LTX-2.3 BF16 video, and moves the prompt-enhancer LLM onto
+    the RTX 5090 to sit beside the game. Rationale: a 22B BF16 model wants the whole 24 GB
+    of the 4090, while the game rarely uses more than ~16 GB of the 5090's 32 GB - so the
+    ~15 GB prompt LLM fits in the 5090's headroom. Because LTX and the LLM are then on
+    DIFFERENT cards, neither has to yield VRAM to the other.
 
-    Because LTX then shares the 4090 with the prompt-enhancer LLM, the app frees the
-    LLM's VRAM before each BF16 generation (PromptVramCoordinator) so the 22B model has
-    room in 24 GB. The prompt server reloads its model lazily on the next enhance.
+    It (re)starts the KeithVision app and the KeithUI studio with the KEITHVISION_PROFILE=4090
+    config layer (appsettings.4090.json -> Ltx on the 4090, LocalLlm on the 5090), pins the
+    LTX server to the 4090, and moves the prompt server to the 5090.
 
     Trade-offs in this profile:
-      * NVFP4 (the fast ComfyUI model) is UNAVAILABLE - it has no FP4 path on the 4090.
-        Use the BF16 model (the default) for generation.
-      * BF16 on a 24 GB card leans on CPU/RAM offload, so generation is slower than on
-        the 5090. Quit anything else holding 4090 VRAM (e.g. the audio server) for headroom.
+      * NVFP4 (the fast ComfyUI model) is UNAVAILABLE - it has no FP4 path on the 4090,
+        and the 5090 is busy gaming. Use the BF16 model (the default) for generation.
+      * BF16 on a 24 GB card leans on CPU/RAM offload, so generation is slower than NVFP4
+        on an idle 5090. Keep the audio server off the 4090 (it defaults there) for headroom.
+      * Prompt LLM + game share the 5090: if a game spikes past ~17 GB you risk an OOM on
+        one of them. The Enhance node's model selector can pick a smaller LLM if needed.
 
-    Run this INSTEAD of start-keithvision.ps1 / start-keithui.ps1 when you want to game
-    on the 5090. To go back to the 5090 for generation, just relaunch those two scripts
-    (or reboot) - they start without the profile.
+    Run this INSTEAD of start-keithvision.ps1 / start-keithui.ps1 when you want to game on
+    the 5090. To go back to all-5090 generation, relaunch those two scripts (or reboot) -
+    they start without the profile.
 
 .PARAMETER GpuName
-    GPU model substring to pin generation to. Defaults to "RTX 4090".
+    GPU to pin LTX (BF16 video) to. Defaults to "RTX 4090".
+
+.PARAMETER PromptGpuName
+    GPU to pin the prompt-enhancer LLM to. Defaults to "RTX 5090" (beside the game).
 
 .PARAMETER LtxPort
     Port the LTX server listens on (must match Ltx:BaseUrl). Defaults to 8765.
+
+.PARAMETER PromptPort
+    Port the prompt server listens on (must match LocalLlm:BaseUrl). Defaults to 8771.
 #>
 [CmdletBinding()]
 param(
-    [string]$GpuName = "RTX 4090",
-    [int]$LtxPort    = 8765
+    [string]$GpuName       = "RTX 4090",
+    [string]$PromptGpuName = "RTX 5090",
+    [int]$LtxPort          = 8765,
+    [int]$PromptPort       = 8771
 )
 $ErrorActionPreference = "Stop"
 
@@ -48,15 +59,18 @@ $env:KEITHVISION_PROFILE = "4090"
 Write-Host "Pinning LTX-2.3 (BF16) to the $GpuName ..." -ForegroundColor Cyan
 & (Join-Path $Tools "restart-ltx-server.ps1") -Port $LtxPort -GpuName $GpuName
 
-# 2. Ensure the prompt-enhancer LLM is up on the 4090 (it also auto-starts on demand;
-#    in this profile it yields its VRAM before each BF16 generation).
-if (-not (Get-NetTCPConnection -State Listen -LocalPort 8771 -ErrorAction SilentlyContinue)) {
-    Write-Host "Starting prompt-enhancer LLM on the $GpuName ..." -ForegroundColor Cyan
-    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-        "-File", (Join-Path $Tools "run-prompt-server.ps1"), "-GpuName", $GpuName
-    )
+# 2. Move the prompt-enhancer LLM onto the 5090 (beside the game). It defaults to the
+#    4090 and may already be resident there, so stop it first to free the 4090 for LTX,
+#    then relaunch it pinned to the 5090.
+Write-Host "Moving prompt-enhancer LLM to the $PromptGpuName ..." -ForegroundColor Cyan
+& (Join-Path $Tools "stop-prompt-server.ps1") -Port $PromptPort
+for ($i = 0; $i -lt 20 -and (Get-NetTCPConnection -State Listen -LocalPort $PromptPort -ErrorAction SilentlyContinue); $i++) {
+    Start-Sleep -Milliseconds 500
 }
+Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-File", (Join-Path $Tools "run-prompt-server.ps1"), "-Port", "$PromptPort", "-GpuName", $PromptGpuName
+)
 
 # 3. Restart the two web apps so they pick up the 4090 profile. Stopping the running
 #    instance is required - the profile is read from KEITHVISION_PROFILE at startup.
@@ -100,5 +114,5 @@ Restart-App -ProcName "KeithUI" -ExePath "C:\ClaudeCore\KeithUI\KeithUI.exe" `
     -OutLog (Join-Path $LogDir "keithui.out.log") -ErrLog (Join-Path $LogDir "keithui.err.log")
 
 Write-Host ""
-Write-Host "4090 profile active: BF16 video + prompt LLM on the $GpuName; the 5090 is free for gaming." -ForegroundColor Cyan
+Write-Host "4090 profile active: LTX BF16 on the $GpuName; prompt LLM on the $PromptGpuName beside the game." -ForegroundColor Cyan
 Write-Host "Reminder: NVFP4 (fast) is unavailable here, and BF16 is slower on 24 GB (CPU/RAM offload)." -ForegroundColor Yellow

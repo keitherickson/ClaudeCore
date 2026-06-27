@@ -15,10 +15,21 @@ public sealed class LocalLlmOptions
 
     /// <summary>
     /// Physical GPU index (CUDA ordinal) the prompt server is pinned to, passed to the
-    /// launcher as -Gpu (the launcher prefers -GpuName "RTX 4090" and only falls back to
-    /// this). Defaults to 1 so the LLM shares the 4090 with the audio model.
+    /// launcher as -Gpu. Defaults to 1 so the LLM shares the 4090 with the audio model.
+    /// Also the co-residency key for <see cref="PromptVramCoordinator"/>: the prompt LLM
+    /// only yields VRAM before a BF16 generation when this equals <see cref="LtxVideoOptions.GpuIndex"/>.
+    /// The "run on 4090" profile moves this to 0 (the 5090, beside the game) so LTX gets
+    /// the whole 4090 — then the two are on different cards and no yield is needed.
     /// </summary>
     public int GpuIndex { get; set; } = 1;
+
+    /// <summary>
+    /// GPU model substring (e.g. "RTX 4090") passed to run-prompt-server.ps1 as -GpuName,
+    /// which it prefers over -Gpu and resolves to a CUDA index by name (slot-order-proof).
+    /// MUST agree with <see cref="GpuIndex"/> — the index drives the co-residency logic
+    /// while the name does the physical pin. Empty falls back to the numeric index.
+    /// </summary>
+    public string GpuName { get; set; } = "RTX 4090";
 
     /// <summary>Max new tokens to generate per enhancement (enhanced prompts stay short).</summary>
     public int MaxTokens { get; set; } = 220;

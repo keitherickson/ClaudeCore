@@ -55,13 +55,14 @@ public sealed class PromptServerControl
             ArgumentList =
             {
                 "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                "-File", script, "-Port", Port.ToString(), "-Gpu", _options.GpuIndex.ToString()
+                "-File", script, "-Port", Port.ToString(),
+                "-Gpu", _options.GpuIndex.ToString(), "-GpuName", _options.GpuName
             },
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
-        _logger.LogInformation("Starting prompt server (detached) on port {Port} (GPU {Gpu})", Port, _options.GpuIndex);
+        _logger.LogInformation("Starting prompt server (detached) on port {Port} (GPU {Gpu}/{GpuName})", Port, _options.GpuIndex, _options.GpuName);
         Process.Start(psi);
         return true;
     }
