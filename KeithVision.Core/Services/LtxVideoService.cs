@@ -15,17 +15,20 @@ public sealed class LtxVideoService
 {
     private readonly IEnumerable<ILtxVideoBackend> _backends;
     private readonly ActiveModelStore _activeModel;
+    private readonly PromptVramCoordinator _promptVram;
     private readonly LtxVideoOptions _options;
     private readonly ILogger<LtxVideoService> _logger;
 
     public LtxVideoService(
         IEnumerable<ILtxVideoBackend> backends,
         ActiveModelStore activeModel,
+        PromptVramCoordinator promptVram,
         IOptions<LtxVideoOptions> options,
         ILogger<LtxVideoService> logger)
     {
         _backends = backends;
         _activeModel = activeModel;
+        _promptVram = promptVram;
         _options = options.Value;
         _logger = logger;
     }
@@ -120,7 +123,12 @@ public sealed class LtxVideoService
 
     public async Task<VideoResult> GenerateAsync(GenerateVideoRequest request, CancellationToken ct = default)
     {
-        var response = await Active().GenerateAsync(request, ct);
+        var active = Active();
+        // When BF16 video and the prompt LLM share a card (the "run on 4090" profile),
+        // free the LLM's VRAM first so the 22B model has room. No-op otherwise.
+        await _promptVram.FreeForVideoAsync(active.Key, ct);
+
+        var response = await active.GenerateAsync(request, ct);
         if (response.Status != "complete" || string.IsNullOrEmpty(response.VideoPath))
             throw new LtxServerException(500, $"Generation did not complete (status={response.Status}).");
 

@@ -41,7 +41,11 @@ public sealed class PromptEnhanceService
             var raw = await _client.GetHealthRawAsync(cts.Token);
             using var doc = JsonDocument.Parse(raw);
             var loaded = doc.RootElement.TryGetProperty("model_loaded", out var ml) && ml.GetBoolean();
-            if (!loaded)
+            // A deliberate /unload (VRAM yielded to a co-resident video model) is healthy:
+            // the server reloads the model on the next EnhanceAsync, which only needs the
+            // port up (see EnsureUpAsync), not a pre-loaded model.
+            var unloaded = doc.RootElement.TryGetProperty("unloaded", out var ul) && ul.GetBoolean();
+            if (!loaded && !unloaded)
             {
                 var err = doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String
                     ? e.GetString() : null;

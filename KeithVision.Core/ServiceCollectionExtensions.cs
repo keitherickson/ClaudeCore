@@ -121,6 +121,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<PromptEnhanceService>();
         // Start/stop + auto-start control for the prompt server (Admin page + on-demand).
         services.AddSingleton<PromptServerControl>();
+        // Frees the prompt LLM's VRAM before a BF16 generation when both are pinned to the
+        // same card (the "run on 4090" profile). No-op on the default 5090/4090 split.
+        services.AddScoped<PromptVramCoordinator>();
 
         return services;
     }

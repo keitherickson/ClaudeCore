@@ -10,8 +10,9 @@ Set up the venv + weights first (a dedicated prompt-venv with transformers + tor
 fastapi + uvicorn). The model downloads from Hugging Face on first run.
 
 Endpoints:
-  GET  /health                              -> {status, model_loaded, model, device, error}
+  GET  /health                              -> {status, model_loaded, unloaded, model, device, error}
   POST /enhance  {text, style?, maxTokens?} -> {prompt}
+  POST /unload                              -> {ok, freed}  # drop the model from VRAM (reloads lazily)
 """
 import os
 import threading
@@ -32,7 +33,8 @@ TEMPERATURE = float(os.environ.get("PROMPT_TEMPERATURE", "0.8"))
 GEN_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 app = FastAPI()
-state = {"model": None, "tokenizer": None, "model_id": None, "device": GEN_DEVICE, "error": None}
+state = {"model": None, "tokenizer": None, "model_id": None, "device": GEN_DEVICE,
+         "error": None, "unloaded": False}
 _gen_lock = threading.Lock()   # serialize generations + model swaps (one resident model at a time)
 
 # Short style hints appended to the user's idea (kept terse so the model leads, not the preset).
@@ -70,17 +72,21 @@ def _load(model_id):
 
 
 def _ensure_model(model_id):
-    """Swap the resident model if a different id is requested. Caller must hold _gen_lock.
-    Frees the current model first — one 7B fits the 4090, two may not."""
-    if not model_id or model_id == state["model_id"]:
+    """Make sure the requested (or default) model is resident, loading or swapping as
+    needed. Caller must hold _gen_lock. Frees the current model first — one 7B fits the
+    4090, two may not. Also handles the lazy reload after /unload has freed VRAM."""
+    target = (model_id or state["model_id"] or MODEL_ID)
+    if state["model"] is not None and target == state["model_id"]:
         return
     state["model"] = None
     state["tokenizer"] = None
     if GEN_DEVICE == "cuda":
         torch.cuda.empty_cache()
-    tok, model = _load(model_id)
-    state["tokenizer"], state["model"], state["model_id"] = tok, model, model_id
-    print(f"[prompt_server] switched model -> {model_id}", flush=True)
+    tok, model = _load(target)
+    state["tokenizer"], state["model"], state["model_id"] = tok, model, target
+    state["unloaded"] = False
+    state["error"] = None
+    print(f"[prompt_server] model resident -> {target}", flush=True)
 
 
 @app.on_event("startup")
@@ -96,9 +102,15 @@ def load_model():
 
 @app.get("/health")
 def health():
+    loaded = state["model"] is not None
+    # A deliberate /unload (VRAM yielded to a co-resident video model) is NOT a failure:
+    # the server is healthy and reloads the model on the next /enhance. Report ok so the
+    # admin card shows "idle" rather than an error in that case.
+    ok = loaded or (state["unloaded"] and state["error"] is None)
     return {
-        "status": "ok" if state["model"] is not None else "error",
-        "model_loaded": state["model"] is not None,
+        "status": "ok" if ok else "error",
+        "model_loaded": loaded,
+        "unloaded": state["unloaded"],
         "model": state["model_id"] or MODEL_ID,
         "device": state["device"],
         "error": state["error"],
@@ -107,9 +119,6 @@ def health():
 
 @app.post("/enhance")
 def enhance(req: EnhanceRequest):
-    if state["model"] is None:
-        return JSONResponse(status_code=503, content={"error": state["error"] or "model not loaded"})
-
     text = (req.text or "").strip()
     if not text:
         return JSONResponse(status_code=400, content={"error": "text is required"})
@@ -121,11 +130,11 @@ def enhance(req: EnhanceRequest):
     requested = (req.model or "").strip()
 
     with _gen_lock:
-        if requested and requested != state["model_id"]:
-            try:
-                _ensure_model(requested)
-            except Exception as e:
-                return JSONResponse(status_code=500, content={"error": f"failed to load model '{requested}': {e!r}"})
+        # Load the requested (or default) model, including a lazy reload after /unload.
+        try:
+            _ensure_model(requested)
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": f"failed to load model '{requested or MODEL_ID}': {e!r}"})
 
         tok = state["tokenizer"]
         model = state["model"]
@@ -153,6 +162,23 @@ def enhance(req: EnhanceRequest):
     if len(result) >= 2 and result[0] in "\"'" and result[-1] == result[0]:
         result = result[1:-1].strip()
     return {"prompt": result or text}
+
+
+@app.post("/unload")
+def unload():
+    """Free the resident model from VRAM without stopping the server; the next /enhance
+    reloads it lazily. Lets the prompt LLM hand the 4090's VRAM to a co-resident BF16
+    video model (the "run on 4090" profile) while keeping this server process warm."""
+    with _gen_lock:
+        had = state["model"] is not None
+        state["model"] = None
+        state["tokenizer"] = None
+        state["model_id"] = None
+        state["unloaded"] = True
+        if GEN_DEVICE == "cuda":
+            torch.cuda.empty_cache()
+        print("[prompt_server] model unloaded to free VRAM", flush=True)
+    return {"ok": True, "freed": had}
 
 
 if __name__ == "__main__":

@@ -1,5 +1,11 @@
 var builder = WebApplication.CreateBuilder(args);
 
+// "run on 4090" profile: when KEITHVISION_PROFILE=4090, layer appsettings.4090.json on
+// top (moves LTX BF16 onto the 4090 + triggers the prompt-LLM VRAM yield). Off by default,
+// so the normal 5090 setup is unchanged. Launched via tools/run-on-4090.ps1.
+if (string.Equals(Environment.GetEnvironmentVariable("KEITHVISION_PROFILE"), "4090", StringComparison.OrdinalIgnoreCase))
+    builder.Configuration.AddJsonFile("appsettings.4090.json", optional: true, reloadOnChange: true);
+
 // UI host.
 builder.Services.AddControllersWithViews();
 

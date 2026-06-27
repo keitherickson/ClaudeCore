@@ -14,9 +14,20 @@ public sealed class LtxVideoOptions
     /// <summary>
     /// Physical GPU index (CUDA device ordinal) the LTX video server is pinned to,
     /// passed to the launcher as -Gpu and exported as CUDA_VISIBLE_DEVICES. Keeping
-    /// video and audio on separate GPUs lets both models stay resident at once.
+    /// video and audio on separate GPUs lets both models stay resident at once. Also the
+    /// co-residency key: when this equals <see cref="LocalLlmOptions.GpuIndex"/> the prompt
+    /// LLM yields its VRAM before a BF16 generation (see <see cref="PromptVramCoordinator"/>).
     /// </summary>
     public int GpuIndex { get; set; } = 0;
+
+    /// <summary>
+    /// GPU model substring (e.g. "RTX 5090") passed to the restart/launch scripts as
+    /// -GpuName, which they prefer over -Gpu and resolve to a CUDA index by name
+    /// (slot-order-proof). MUST agree with <see cref="GpuIndex"/> — the index drives the
+    /// co-residency logic while the name does the physical pin. The "run on 4090" profile
+    /// overrides both to the 4090. Empty falls back to the numeric index.
+    /// </summary>
+    public string GpuName { get; set; } = "RTX 5090";
 
     /// <summary>Folder on the local drive where finished videos are copied.</summary>
     public string OutputDirectory { get; set; } = @"C:\Users\keith\Videos\LTX-Generated";

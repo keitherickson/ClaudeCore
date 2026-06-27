@@ -39,6 +39,17 @@ public sealed class LocalLlmClient
         return doc?.Prompt ?? text;
     }
 
+    /// <summary>
+    /// Asks the server to drop the resident model from VRAM (it reloads lazily on the next
+    /// /enhance). Used to free the 4090 for a co-resident BF16 video model. Returns true if
+    /// the server acknowledged; never throws on a non-success status — freeing VRAM is best-effort.
+    /// </summary>
+    public async Task<bool> UnloadAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync("/unload", content: null, ct);
+        return resp.IsSuccessStatusCode;
+    }
+
     private sealed record EnhanceRequest(string Text, string? Style, int MaxTokens, string? Model);
     private sealed record EnhanceResponse(string Prompt);
 }
