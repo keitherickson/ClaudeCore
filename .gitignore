@@ -34,6 +34,10 @@ tools/*.log
 tools/*.log.err
 tools/*-pid.txt
 
+# Python build artifacts
+__pycache__/
+*.pyc
+
 # OS junk
 Thumbs.db
 .DS_Store
