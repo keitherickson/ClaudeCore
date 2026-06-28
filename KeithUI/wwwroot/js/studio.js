@@ -975,6 +975,21 @@
         });
     }
 
+    // A graph saved before a node gained a widget restores that node at its OLD
+    // (too-short) height, so the new widget hangs below the node body — overflowing
+    // and unclickable (you can't edit it). Grow any node that's now shorter than the
+    // minimum its current widget set needs. Only ever grows, so intentionally-large
+    // nodes (e.g. Preview Save) keep their size.
+    function refitNodes() {
+        graph._nodes.forEach(function (n) {
+            if (!n.computeSize) return;
+            var min = n.computeSize();
+            if (n.size[0] < min[0]) n.size[0] = min[0];
+            if (n.size[1] < min[1]) n.size[1] = min[1];
+            n.setDirtyCanvas(true, true);
+        });
+    }
+
     document.getElementById("save-btn").addEventListener("click", function () {
         var json = JSON.stringify(graph.serialize(), null, 2);
         var a = document.createElement("a");
@@ -997,6 +1012,7 @@
                 graph.configure(data);
                 graph.start();
                 reattachThumbnails();
+                refitNodes();
                 resize();
                 statusEl.textContent = "Loaded " + graph._nodes.length + " nodes from " + loadFile.files[0].name;
             } catch (e) {
@@ -1074,6 +1090,7 @@
         graph.configure(data);
         graph.start();
         reattachThumbnails();
+        refitNodes();
         resize();
         statusEl.textContent = "Loaded " + label + " (" + graph._nodes.length + " nodes)";
     }
