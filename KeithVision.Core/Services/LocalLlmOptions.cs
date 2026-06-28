@@ -28,8 +28,18 @@ public sealed class LocalLlmOptions
     /// which it prefers over -Gpu and resolves to a CUDA index by name (slot-order-proof).
     /// MUST agree with <see cref="GpuIndex"/> — the index drives the co-residency logic
     /// while the name does the physical pin. Empty falls back to the numeric index.
+    /// Ignored when <see cref="Device"/> is "cpu".
     /// </summary>
     public string GpuName { get; set; } = "RTX 4090";
+
+    /// <summary>
+    /// Compute device for the prompt LLM: "auto" (GPU if visible, else CPU — default),
+    /// "cuda", or "cpu". The game-on-4090 profile sets "cpu" so the enhancer runs in
+    /// system RAM and takes no GPU VRAM. Passed to run-prompt-server.ps1 as -Device; when
+    /// "cpu" the prompt LLM is never co-resident with the video model (see
+    /// <see cref="PromptVramCoordinator"/>).
+    /// </summary>
+    public string Device { get; set; } = "auto";
 
     /// <summary>Max new tokens to generate per enhancement (enhanced prompts stay short).</summary>
     public int MaxTokens { get; set; } = 220;

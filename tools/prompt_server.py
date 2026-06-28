@@ -28,9 +28,17 @@ PORT        = int(os.environ.get("PROMPT_PORT", "8771"))
 MAX_TOKENS  = int(os.environ.get("PROMPT_MAX_TOKENS", "220"))
 TEMPERATURE = float(os.environ.get("PROMPT_TEMPERATURE", "0.8"))
 
-# Resident on whatever GPU the launcher made visible (the 4090). Pinned there, so
-# unlike a shared box there's no contention with the video models on the 5090.
-GEN_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# Device selection. PROMPT_DEVICE (set by run-prompt-server.ps1): "auto" (default —
+# GPU if visible, else CPU), "cuda", or "cpu". The game-on-4090 profile uses "cpu" so
+# the enhancer runs in system RAM and leaves both GPUs alone (the game has the 4090,
+# video has the 5090). On CPU we load in bfloat16 — about half the RAM of float32 and
+# well-supported for LLM inference — but a 7B model is still ~15 GB of RAM, so prefer a
+# smaller PROMPT_MODEL if memory is tight.
+_dev = os.environ.get("PROMPT_DEVICE", "auto").strip().lower()
+if _dev == "cpu":
+    GEN_DEVICE = "cpu"
+else:  # "auto" and "cuda" both fall back to CPU when no GPU is visible
+    GEN_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 app = FastAPI()
 state = {"model": None, "tokenizer": None, "model_id": None, "device": GEN_DEVICE,
@@ -65,7 +73,8 @@ def _load(model_id):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model_id)
-    dtype = torch.float16 if GEN_DEVICE == "cuda" else torch.float32
+    # fp16 on GPU; bfloat16 on CPU (half the RAM of fp32, fine for inference).
+    dtype = torch.float16 if GEN_DEVICE == "cuda" else torch.bfloat16
     model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype).to(GEN_DEVICE)
     model.eval()
     return tok, model

@@ -26,7 +26,8 @@
 param(
     [int]$Port       = 8771,
     [int]$Gpu        = 1,
-    [string]$GpuName = "RTX 4090"
+    [string]$GpuName = "RTX 4090",
+    [string]$Device  = "auto"   # auto | cuda | cpu  (cpu = run in system RAM, no GPU)
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,29 +41,37 @@ foreach ($p in @($Python, $Server)) {
     }
 }
 
-# Pick the card by NAME first (slot-order-proof), falling back to the -Gpu index.
-. (Join-Path $PSScriptRoot "gpu-common.ps1")
-if ($GpuName) { $Gpu = Resolve-GpuIndex -Name $GpuName -Fallback $Gpu }
+$env:PROMPT_PORT   = "$Port"
+$env:PROMPT_DEVICE = $Device
+$env:CUDA_DEVICE_ORDER = "PCI_BUS_ID"   # stable index across mixed 5090/4090
 
-# Safety net: pinning to a missing index hides every CUDA device and the model
-# silently loads on CPU. If the chosen index isn't present, fall back to GPU 0.
-try {
-    $gpuCount = (@(& nvidia-smi --query-gpu=index --format=csv,noheader 2>$null)).Count
-    if ($gpuCount -gt 0 -and $Gpu -ge $gpuCount) {
-        Write-Host "GPU $Gpu not present ($gpuCount GPU(s) detected); falling back to GPU 0" -ForegroundColor Yellow
-        $Gpu = 0
-    }
-} catch { }
+if ($Device -eq "cpu") {
+    # Run in system RAM, no GPU. Hide every CUDA device so nothing can grab VRAM.
+    $env:CUDA_VISIBLE_DEVICES = ""
+    Write-Host "Starting prompt-enhancer server on http://127.0.0.1:$Port (CPU / system RAM)  (Ctrl+C to stop)" -ForegroundColor Cyan
+} else {
+    # Pick the card by NAME first (slot-order-proof), falling back to the -Gpu index.
+    . (Join-Path $PSScriptRoot "gpu-common.ps1")
+    if ($GpuName) { $Gpu = Resolve-GpuIndex -Name $GpuName -Fallback $Gpu }
 
-$env:PROMPT_PORT          = "$Port"
-$env:CUDA_DEVICE_ORDER    = "PCI_BUS_ID" # stable index across mixed 5090/4090
-$env:CUDA_VISIBLE_DEVICES = "$Gpu"       # pin the LLM to this GPU only
+    # Safety net: pinning to a missing index hides every CUDA device and the model
+    # silently loads on CPU. If the chosen index isn't present, fall back to GPU 0.
+    try {
+        $gpuCount = (@(& nvidia-smi --query-gpu=index --format=csv,noheader 2>$null)).Count
+        if ($gpuCount -gt 0 -and $Gpu -ge $gpuCount) {
+            Write-Host "GPU $Gpu not present ($gpuCount GPU(s) detected); falling back to GPU 0" -ForegroundColor Yellow
+            $Gpu = 0
+        }
+    } catch { }
+
+    $env:CUDA_VISIBLE_DEVICES = "$Gpu"   # pin the LLM to this GPU only
+    Write-Host "Starting prompt-enhancer server on http://127.0.0.1:$Port (GPU $Gpu)  (Ctrl+C to stop)" -ForegroundColor Cyan
+}
 # PROMPT_MODEL / PROMPT_MAX_TOKENS / PROMPT_TEMPERATURE use prompt_server.py defaults unless set here.
 
 # Force the classic HTTPS downloader (the hf_xet fast-transfer backend has stalled here before).
 $env:HF_HUB_DISABLE_XET = "1"
 
-Write-Host "Starting prompt-enhancer server on http://127.0.0.1:$Port (GPU $Gpu)  (Ctrl+C to stop)" -ForegroundColor Cyan
 Write-Host "Venv: $Python" -ForegroundColor DarkGray
 
 & $Python -u $Server

@@ -40,8 +40,14 @@ public sealed class PromptVramCoordinator
         _log = log;
     }
 
-    /// <summary>True when the BF16 video model and the prompt LLM are pinned to the same GPU.</summary>
-    public bool PromptSharesVideoGpu => _ltx.GpuIndex == _llm.GpuIndex;
+    /// <summary>
+    /// True when the BF16 video model and the prompt LLM are pinned to the same GPU. A
+    /// CPU-hosted prompt LLM (the game-on-4090 profile) never shares a card, so there's
+    /// nothing to free.
+    /// </summary>
+    public bool PromptSharesVideoGpu =>
+        !string.Equals(_llm.Device, "cpu", StringComparison.OrdinalIgnoreCase)
+        && _ltx.GpuIndex == _llm.GpuIndex;
 
     /// <summary>
     /// If the BF16 backend is about to generate on the same GPU the prompt LLM occupies,
