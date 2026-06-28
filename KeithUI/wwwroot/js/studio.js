@@ -391,8 +391,8 @@
         // from then on, no re-enhancement).
         addMultilineText(this, "prompt", "a drone shot flying over a coastline", 3);
         addMultilineText(this, "enhanced", "", 4);
-        this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
-        this.addWidget("number", "secPerSeg", 5, null, { min: 1, max: 30, step: 10, precision: 0 });
+        this.addWidget("combo", "resolution", "720p", null, { values: ["540p", "720p", "1080p"] });
+        this.addWidget("number", "secPerSeg", 10, null, { min: 1, max: 30, step: 10, precision: 0 });
         this.addWidget("number", "iterations", 3, null, { min: 2, max: 8, step: 10, precision: 0 });   // X
         this.addWidget("number", "trimSeconds", 1, null, { min: 0, max: 30, step: 10, precision: 1 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
