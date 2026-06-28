@@ -182,8 +182,11 @@ public sealed class GraphExecutor
             }
             case "Sound/sound":
             {
-                var staged = await _sound.GenerateAsync(Str(0), Num(1, 5), ct);
-                await log($"Generate Sound: '{Str(0)}' -> {Path.GetFileName(staged.Path)}");
+                // A wired Enhance Prompt (TEXT) overrides the prompt box, mirroring the video nodes.
+                var text = string.IsNullOrWhiteSpace(promptIn) ? Str(0) : promptIn;
+                if (string.IsNullOrWhiteSpace(text)) { await log("Generate Sound: no prompt — skipped"); return null; }
+                var staged = await _sound.GenerateAsync(text, Num(1, 5), ct);
+                await log($"Generate Sound: '{text}' -> {Path.GetFileName(staged.Path)}");
                 return staged.Path;
             }
             case "Video/generate":

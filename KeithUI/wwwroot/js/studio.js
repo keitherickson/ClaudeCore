@@ -217,6 +217,7 @@
     });
 
     define("Sound/sound", "Generate Sound", "#553", function () {
+        this.addInput("prompt", LiteGraph.TEXT);    // optional (Enhance Prompt overrides the widget)
         this.addOutput("audio", LiteGraph.AUDIO);
         addMultilineText(this, "prompt", "", 5);   // tall, inline-editable (same as Generate Video)
         this.addWidget("number", "seconds", 21, null, { min: 1, max: 30, step: 10, precision: 0 });
@@ -328,11 +329,14 @@
 
     // --- Generate ----------------------------------------------------------
     // Local LLM (on the 4090) rewrites a short idea into a vivid prompt. Wire its TEXT
-    // output into a Generate/Extend Video "prompt" input to override that node's prompt box.
+    // output into a Generate/Extend Video "prompt" input to override that node's prompt
+    // box — or into a Generate Sound "prompt" input (pick the "sound" style so the LLM
+    // describes what's heard, not what's seen).
     define("Prompts/enhance", "Enhance Prompt", "#556", function () {
         this.addOutput("prompt", LiteGraph.TEXT);
         addMultilineText(this, "idea", "", 4);   // the short idea to expand
-        this.addWidget("combo", "style", "cinematic", null, { values: ["cinematic", "photoreal", "anime", "vivid", "none"] });
+        // Visual styles for video; "sound" retargets the LLM at the text-to-audio model.
+        this.addWidget("combo", "style", "cinematic", null, { values: ["cinematic", "photoreal", "anime", "vivid", "none", "sound"] });
         // Which local model to use. "(default)" keeps the server's configured/loaded model;
         // any other id makes the server swap to it (the first use of a new id pays the load cost).
         this.addWidget("combo", "model", "(default)", null, { values: [
@@ -845,8 +849,9 @@
             }
             if (n.type === "Sound/sound") {
                 var sp = n.widgets && n.widgets[0] && n.widgets[0].value;
-                if (!sp || !String(sp).trim())
-                    issues.push({ node: n.id, msg: "Generate Sound needs a prompt — add one before running." });
+                // A wired Enhance Prompt supplies the prompt at run time, so the box can be empty then.
+                if ((!sp || !String(sp).trim()) && !isLinked(n, "prompt"))
+                    issues.push({ node: n.id, msg: "Generate Sound needs a prompt — type one, or wire an Enhance Prompt node into its prompt input." });
             }
             if (n.type === "Groups/run_group") {
                 var lay = n.widgets && n.widgets[0] && n.widgets[0].value;
