@@ -372,6 +372,10 @@
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
         this.addWidget("combo", "duration", 20, null, { values: [5, 6, 8, 10, 12, 14, 16, 18, 20] });  // LTX-allowed seconds
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
+        // Negative prompt (widget 5): terms to steer generation AWAY from. LTX-2.3 is an
+        // audio+video model, so "music, soundtrack" suppresses its generated music track
+        // while leaving speech/ambience. Edit or clear it freely; empty = no negative.
+        addMultilineText(this, "negative", "music, background music, soundtrack, score", 2);
         this.size = this.computeSize();          // size to fit every control inside the border
         if (this.size[0] < 320) this.size[0] = 320;
     });

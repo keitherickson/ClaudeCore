@@ -210,6 +210,7 @@ public sealed class GraphExecutor
                     Duration = Num(3, 5),
                     Fps = _defaults.Fps,
                     AspectRatio = Str(4, "16:9"),
+                    NegativePrompt = Str(5, ""),   // e.g. "music, soundtrack" to suppress LTX-2.3's generated music
                     ImagePath = imgIn,
                     AudioPath = audIn,
                     Audio = audIn is not null,
