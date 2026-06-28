@@ -585,20 +585,18 @@
 
     function starterGraph() {
         graph.clear();
-        // Sources (left column): a start image and a generated sound track. The loop now does
-        // its own prompt enhancement, so there's no separate Enhance Prompt node here.
+        // Minimal default: a start image feeds the retry loop, which saves straight to preview.
+        // (No sound nodes — add Sound/Add Audio manually when you want a track.) The loop does
+        // its own prompt enhancement, so there's no separate Enhance Prompt node here either.
         var img = LiteGraph.createNode("Image/load_image"); graph.add(img);
-        var gsnd = LiteGraph.createNode("Sound/sound");     graph.add(gsnd);
         // The loop: generate → trim tail → take frame → generate next, repeated "iterations"
-        // times, stitched into one continuous video. Then lay the sound over it and save.
+        // times, stitched into one continuous video, then saved.
         var loop = LiteGraph.createNode("Video/trim_continue"); graph.add(loop);
-        var addaud = LiteGraph.createNode("Sound/add_audio");   graph.add(addaud);
         var save = LiteGraph.createNode("Preview Save/save");   save.size = [420, 360]; graph.add(save);
         // Seed widgets so the default graph passes validation and runs as-is: a raw idea for the
-        // loop (it enhances this into its "enhanced" field on the first run) and a Sound prompt.
-        if (gsnd.widgets && gsnd.widgets[0]) gsnd.widgets[0].value = "gentle lapping water and distant birdsong";
-        // Default to the retry loop: 4 iterations, pausing after each segment so you can review
-        // the conditioning frame and adjust/retry the enhanced prompt before continuing.
+        // loop (it enhances this into its "enhanced" field on the first run). Default to the retry
+        // loop: 4 iterations, pausing after each segment so you can review the conditioning frame
+        // and adjust/retry the enhanced prompt before continuing.
         var setW = function (node, name, val) {
             var wgt = (node.widgets || []).find(function (x) { return x.name === name; });
             if (wgt) wgt.value = val;
@@ -607,24 +605,15 @@
         setW(loop, "iterations", 4);
         setW(loop, "pauseEachStep", true);
         // Lay the graph out in left→right columns using each node's ACTUAL size, so nothing
-        // overlaps regardless of how tall the loop/enhance nodes compute. Sources stack in the
-        // left column; loop, add-audio, and save follow in their own columns with fixed gaps.
+        // overlaps regardless of how tall the loop node computes.
         (function layout() {
-            var X0 = 40, Y0 = 60, COL_GAP = 90, ROW_GAP = 45;
-            var y = Y0, leftW = 0;
-            [img, gsnd].forEach(function (n) {
-                n.pos = [X0, y];
-                y += n.size[1] + ROW_GAP;
-                leftW = Math.max(leftW, n.size[0]);
-            });
-            loop.pos   = [X0 + leftW + COL_GAP, Y0];
-            addaud.pos = [loop.pos[0] + loop.size[0] + COL_GAP, Y0 + 80];
-            save.pos   = [addaud.pos[0] + addaud.size[0] + COL_GAP, Y0];
+            var X0 = 40, Y0 = 60, COL_GAP = 90;
+            img.pos  = [X0, Y0];
+            loop.pos = [X0 + img.size[0] + COL_GAP, Y0];
+            save.pos = [loop.pos[0] + loop.size[0] + COL_GAP, Y0];
         })();
-        img.connect(0, loop, 0);     // Load Image -> Trim & Continue (start frame, slot 0)
-        loop.connect(0, addaud, 0);  // Trim & Continue -> Add Audio (video, slot 0)
-        gsnd.connect(0, addaud, 1);  // Generate Sound -> Add Audio (audio, slot 1)
-        addaud.connect(0, save, 0);  // Add Audio -> Save
+        img.connect(0, loop, 0);   // Load Image -> Trim & Continue (start frame, slot 0)
+        loop.connect(0, save, 0);  // Trim & Continue -> Save (video, slot 0)
         graph.start();
     }
     starterGraph();
