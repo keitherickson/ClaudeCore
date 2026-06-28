@@ -1,7 +1,8 @@
 """
 Local LLM "prompt enhancer" server for ClaudeCore / KeithUI.
 
-Turns a short idea into ONE vivid text-to-video prompt. Runs a local instruct
+Turns a short idea into ONE vivid prompt — a text-to-video prompt by default, or a
+text-to-audio sound prompt when style is "sound"/"audio". Runs a local instruct
 model (default Qwen2.5-7B-Instruct) on the 4090 — pinned via CUDA_VISIBLE_DEVICES
 by tools/run-prompt-server.ps1 — so it never competes with the video models on the
 5090. No API key, no per-call cost.
@@ -54,11 +55,23 @@ STYLE_GUIDANCE = {
     "none": "",
 }
 
-SYSTEM = (
+# Styles that target the text-to-audio model instead of text-to-video. They swap the
+# system prompt (describe sound, not picture) and skip the visual STYLE_GUIDANCE above.
+SOUND_STYLES = {"sound", "audio"}
+
+SYSTEM_VIDEO = (
     "You are a prompt engineer for a text-to-video model. Rewrite the user's idea into "
     "ONE concise, vivid prompt of 1-3 sentences. Describe the subject, setting, lighting, "
     "and camera motion. Output ONLY the prompt text — no preamble, no quotes, no lists, "
     "no explanation."
+)
+
+SYSTEM_SOUND = (
+    "You are a prompt engineer for a text-to-audio sound-effects model. Rewrite the user's "
+    "idea into ONE concise, vivid prompt of 1-3 sentences describing only what is HEARD: the "
+    "sound sources, their texture and timing, and the surrounding ambience. Do not mention "
+    "anything visual — no camera, lighting, or imagery. Output ONLY the prompt text — no "
+    "preamble, no quotes, no lists, no explanation."
 )
 
 
@@ -133,7 +146,9 @@ def enhance(req: EnhanceRequest):
         return JSONResponse(status_code=400, content={"error": "text is required"})
 
     style = (req.style or "cinematic").strip().lower()
-    extra = STYLE_GUIDANCE.get(style, "")
+    is_sound = style in SOUND_STYLES
+    system = SYSTEM_SOUND if is_sound else SYSTEM_VIDEO
+    extra = "" if is_sound else STYLE_GUIDANCE.get(style, "")
     user = text if not extra else f"{text}\n\nStyle: {extra}"
     max_new = req.maxTokens if (req.maxTokens and req.maxTokens > 0) else MAX_TOKENS
     requested = (req.model or "").strip()
@@ -147,7 +162,7 @@ def enhance(req: EnhanceRequest):
 
         tok = state["tokenizer"]
         model = state["model"]
-        messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         # return_dict=True works on transformers 4.x and 5.x; 5.x no longer returns a bare
         # tensor from return_tensors="pt", so unpack input_ids/attention_mask explicitly.
         enc = tok.apply_chat_template(
