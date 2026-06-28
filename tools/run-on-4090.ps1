@@ -67,10 +67,12 @@ Write-Host "Moving prompt-enhancer LLM to the $PromptGpuName ..." -ForegroundCol
 for ($i = 0; $i -lt 20 -and (Get-NetTCPConnection -State Listen -LocalPort $PromptPort -ErrorAction SilentlyContinue); $i++) {
     Start-Sleep -Milliseconds 500
 }
-Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
-    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-    "-File", (Join-Path $Tools "run-prompt-server.ps1"), "-Port", "$PromptPort", "-GpuName", $PromptGpuName
-)
+# Build a single quoted command line: Start-Process -ArgumentList @(...) does NOT quote
+# array elements, so a GpuName with a space ("RTX 5090") would split into two tokens and
+# bind wrong (it would land on the wrong card / port). A single string is passed verbatim.
+$promptArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Port {1} -GpuName "{2}"' -f `
+    (Join-Path $Tools "run-prompt-server.ps1"), $PromptPort, $PromptGpuName
+Start-Process powershell.exe -WindowStyle Hidden -ArgumentList $promptArgs
 
 # 3. Restart the two web apps so they pick up the 4090 profile. Stopping the running
 #    instance is required - the profile is read from KEITHVISION_PROFILE at startup.
