@@ -37,6 +37,14 @@ public sealed class MaxineUpscaleService
             problem = $"VideoEffectsApp.exe not found at {_o.ExecutablePath}";
             return false;
         }
+        // The exe loads NVCVImage.dll / NVVideoEffects.dll from SdkBinDir (which we add to
+        // the child's PATH at run time). If the SDK redistributable isn't installed there,
+        // effect creation aborts with "Cannot find nvCVImage DLL or its dependencies".
+        if (string.IsNullOrWhiteSpace(_o.SdkBinDir) || !File.Exists(Path.Combine(_o.SdkBinDir, "NVCVImage.dll")))
+        {
+            problem = $"Maxine SDK runtime not found at {_o.SdkBinDir} (NVCVImage.dll missing) — install the Maxine Video Effects redistributable.";
+            return false;
+        }
         if (!Directory.Exists(_o.ModelDir))
         {
             problem = $"SDK models not found at {_o.ModelDir} — install the Maxine Video Effects redistributable.";

@@ -380,6 +380,10 @@ public sealed class GraphExecutor
             case "Upscaling/upscale_maxine":
             {
                 if (vidIn is null) { await log("Upscale (MAXINE): no video input — skipped"); return null; }
+                // Fail fast with the actionable cause (mirrors VideoController) instead of
+                // letting the exe abort with a cryptic "exit -11 / Cannot find nvCVImage DLL".
+                if (!_maxine.IsReady(out var problem))
+                    throw new InvalidOperationException($"Maxine upscaling unavailable: {problem}");
                 var factor = int.TryParse(Str(0, "2"), out var f) && f is 2 or 3 or 4 ? f : 2;
                 var input = await _speed.EnsureH264Async(vidIn, ct);
                 var srcH = VideoProbe.TryGetHeight(input) ?? 1080;
