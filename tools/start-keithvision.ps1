@@ -21,6 +21,14 @@ function Port-Listening($port) {
     [bool](Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
 }
 
+# Address-specific: KeithUI listens on 127.0.0.2:80, so a bare port-80 check would
+# say "up" even when KeithVision isn't. The web-app guard below uses this against
+# 127.0.0.1 (KeithVision's own address) so a neighbor on 127.0.0.2:80 can't
+# suppress the launch. Mirrors start-keithui.ps1's Endpoint-Listening.
+function Endpoint-Listening($address, $port) {
+    [bool](Get-NetTCPConnection -State Listen -LocalAddress $address -LocalPort $port -ErrorAction SilentlyContinue)
+}
+
 # Launch a process FULLY DETACHED from this launcher: its own console, parented
 # by the WMI service rather than by us. A Start-Process child stays attached to
 # this launcher's (hidden) console, so when that console goes away the child gets
@@ -79,8 +87,10 @@ if ((Test-Path $LtxPy) -and -not (Port-Listening 8765)) {
     }
 }
 
-# 2. KeithVision web app (ports come from appsettings.json -> Kestrel: 80 + 5080)
-if ((Test-Path $AppExe) -and -not (Port-Listening 80) -and -not (Port-Listening 5080)) {
+# 2. KeithVision web app (ports come from appsettings.json -> Kestrel: 80 + 5080).
+#    Checked against 127.0.0.1 specifically: KeithUI on 127.0.0.2:80 must not look
+#    like KeithVision is already up, or this guard would wrongly skip the launch.
+if ((Test-Path $AppExe) -and -not (Endpoint-Listening "127.0.0.1" 80) -and -not (Endpoint-Listening "127.0.0.1" 5080)) {
     Start-Process -FilePath $AppExe -WindowStyle Hidden `
         -WorkingDirectory $AppDir `
         -RedirectStandardOutput (Join-Path $LogDir "app.out.log") `
