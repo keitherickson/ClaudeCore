@@ -21,6 +21,7 @@ public sealed class GraphExecutor
     private readonly ComfyUiUpscaleService _aiUpscale;
     private readonly VideoSpeedService _speed;
     private readonly SoundGenService _sound;
+    private readonly MusicGenService _music;   // for the "Generate Music" node (local MusicGen server)
     private readonly PromptEnhanceService _prompt;   // for the "Enhance Prompt" node (local LLM on the 4090)
     private readonly VideoDefaultsOptions _defaults;
     private readonly LayoutStore _layouts;   // for the "Run Group" node (a saved layout = a config file)
@@ -30,10 +31,10 @@ public sealed class GraphExecutor
     public GraphExecutor(
         LtxVideoService ltx, ActiveModelStore activeModel, VideoBackendCoordinator coordinator,
         MaxineUpscaleService maxine, ComfyUiUpscaleService aiUpscale, VideoSpeedService speed,
-        SoundGenService sound, PromptEnhanceService prompt, IOptions<VideoDefaultsOptions> defaults, LayoutStore layouts, RunRegistry runs, ILogger<GraphExecutor> log)
+        SoundGenService sound, MusicGenService music, PromptEnhanceService prompt, IOptions<VideoDefaultsOptions> defaults, LayoutStore layouts, RunRegistry runs, ILogger<GraphExecutor> log)
     {
         _ltx = ltx; _activeModel = activeModel; _coordinator = coordinator;
-        _maxine = maxine; _aiUpscale = aiUpscale; _speed = speed; _sound = sound;
+        _maxine = maxine; _aiUpscale = aiUpscale; _speed = speed; _sound = sound; _music = music;
         _prompt = prompt; _defaults = defaults.Value; _layouts = layouts; _runs = runs; _log = log;
     }
 
@@ -187,6 +188,15 @@ public sealed class GraphExecutor
                 if (string.IsNullOrWhiteSpace(text)) { await log("Generate Sound: no prompt — skipped"); return null; }
                 var staged = await _sound.GenerateAsync(text, Num(1, 5), ct);
                 await log($"Generate Sound: '{text}' -> {Path.GetFileName(staged.Path)}");
+                return staged.Path;
+            }
+            case "Sound/music":
+            {
+                // A wired Enhance Prompt (TEXT) overrides the prompt box, mirroring Generate Sound.
+                var text = string.IsNullOrWhiteSpace(promptIn) ? Str(0) : promptIn;
+                if (string.IsNullOrWhiteSpace(text)) { await log("Generate Music: no prompt — skipped"); return null; }
+                var staged = await _music.GenerateAsync(text, Num(1, 15), ct);
+                await log($"Generate Music: '{text}' -> {Path.GetFileName(staged.Path)}");
                 return staged.Path;
             }
             case "Video/generate":

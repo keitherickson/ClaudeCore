@@ -112,6 +112,20 @@ public static class ServiceCollectionExtensions
         // Start/stop control for the audio server (Admin page); not an auto-start service.
         services.AddSingleton<AudioServerControl>();
 
+        // Self-hosted MusicGen (text-to-music) server: a local Python server
+        // (tools/run-music-server.ps1) that KeithVision calls over HTTP — no API key and no
+        // per-call cost, runs on the local GPU. The music counterpart to Stable Audio above.
+        services.Configure<LocalMusicOptions>(configuration.GetSection(LocalMusicOptions.SectionName));
+        services.AddHttpClient<LocalMusicClient>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<LocalMusicOptions>>().Value;
+            client.BaseAddress = new Uri(opts.BaseUrl);
+            client.Timeout = TimeSpan.FromMinutes(opts.TimeoutMinutes);
+        });
+        services.AddScoped<MusicGenService>();
+        // Start/stop control for the music server (Admin page); not an auto-start service.
+        services.AddSingleton<MusicServerControl>();
+
         // Self-hosted prompt-enhancer LLM: a local Python server (tools/run-prompt-server.ps1)
         // on the 4090 that rewrites a short idea into a vivid text-to-video prompt. Generous
         // timeout since the first call can include the model load.

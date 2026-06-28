@@ -1,0 +1,30 @@
+# Dependencies for the ClaudeCore music server (tools/music_server.py — MusicGen via Transformers).
+#
+# MusicGen needs only torch (cu128), transformers, soundfile, fastapi/uvicorn and
+# accelerate — ALL of which the audio server venv already pins (see audio-requirements.txt).
+# So the recommended setup is to REUSE that venv: tools/run-music-server.ps1 points at
+# C:\ClaudeCore\audio-venv and no extra install is needed.
+#
+# Verify the audio venv already covers MusicGen:
+#   C:\ClaudeCore\audio-venv\Scripts\python -c "from transformers import MusicgenForConditionalGeneration; print('ok')"
+#
+# Only if you want a SEPARATE music venv, create one and install these (the cu128 torch
+# wheel lives only on the PyTorch index, hence --extra-index-url):
+#   py -3.11 -m venv C:\ClaudeCore\music-venv
+#   C:\ClaudeCore\music-venv\Scripts\python -m pip install --upgrade pip
+#   C:\ClaudeCore\music-venv\Scripts\python -m pip install -r tools\music-requirements.txt
+# then point $Python in tools\run-music-server.ps1 at that venv.
+
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+torch==2.11.0+cu128
+transformers==5.12.1
+accelerate==1.14.0
+soundfile==0.14.0
+scipy==1.17.1
+fastapi==0.137.1
+uvicorn==0.49.0
+pydantic==2.13.4
+huggingface_hub==1.19.0
+safetensors==0.8.0
+sentencepiece==0.2.1

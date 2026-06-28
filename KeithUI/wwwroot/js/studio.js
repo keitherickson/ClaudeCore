@@ -225,6 +225,18 @@
         if (this.size[0] < 300) this.size[0] = 300;
     });
 
+    // Text-to-music via the local MusicGen server. Outputs AUDIO, so it feeds Add Audio
+    // (or Generate Video's audio input) exactly like Generate Sound. MusicGen is
+    // instrumental; for vocals a different model would be needed.
+    define("Sound/music", "Generate Music", "#535", function () {
+        this.addInput("prompt", LiteGraph.TEXT);    // optional (Enhance Prompt overrides the widget)
+        this.addOutput("audio", LiteGraph.AUDIO);
+        addMultilineText(this, "prompt", "", 5);   // tall, inline-editable (same as Generate Sound)
+        this.addWidget("number", "seconds", 15, null, { min: 1, max: 30, step: 10, precision: 0 });
+        this.size = this.computeSize();
+        if (this.size[0] < 300) this.size[0] = 300;
+    });
+
     // Upload an audio file to use as the Generate Video audio track (audio-to-video).
     define("Sound/load_sound", "Load Sound", "#553", function () {
         var self = this;
@@ -852,6 +864,12 @@
                 // A wired Enhance Prompt supplies the prompt at run time, so the box can be empty then.
                 if ((!sp || !String(sp).trim()) && !isLinked(n, "prompt"))
                     issues.push({ node: n.id, msg: "Generate Sound needs a prompt — type one, or wire an Enhance Prompt node into its prompt input." });
+            }
+            if (n.type === "Sound/music") {
+                var mp = n.widgets && n.widgets[0] && n.widgets[0].value;
+                // A wired Enhance Prompt supplies the prompt at run time, so the box can be empty then.
+                if ((!mp || !String(mp).trim()) && !isLinked(n, "prompt"))
+                    issues.push({ node: n.id, msg: "Generate Music needs a prompt — type one, or wire an Enhance Prompt node into its prompt input." });
             }
             if (n.type === "Groups/run_group") {
                 var lay = n.widgets && n.widgets[0] && n.widgets[0].value;

@@ -138,6 +138,12 @@
             h += '<div class="row">' + dot(backendState(d.audio)) + '<span class="k">Stable Audio</span>'
                + '<span class="v">' + (d.audio.reachable ? "model loaded" : d.audio.portListening ? "starting" : "stopped") + ' · :' + d.audio.port + '</span></div>';
             if (d.audio.error) h += '<div class="err">' + esc(d.audio.error) + '</div>';
+            // MusicGen
+            if (d.music) {
+                h += '<div class="row">' + dot(backendState(d.music)) + '<span class="k">MusicGen</span>'
+                   + '<span class="v">' + (d.music.reachable ? "model loaded" : d.music.portListening ? "starting" : "stopped") + ' · :' + d.music.port + '</span></div>';
+                if (d.music.error) h += '<div class="err">' + esc(d.music.error) + '</div>';
+            }
             // Prompt-enhancer LLM
             if (d.prompt) {
                 h += '<div class="row">' + dot(backendState(d.prompt)) + '<span class="k">Prompt LLM</span>'
@@ -164,6 +170,8 @@
                + '<button class="ghost" onclick="_adminAction(\'/Admin/RestartLtx\', null, \'Restart LTX\')">Restart LTX</button>'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/StartAudio\', null, \'Start audio\')">Start audio</button>'
                + '<button class="danger" onclick="_adminAction(\'/Admin/StopAudio\', null, \'Stop audio\')">Stop audio</button>'
+               + '<button class="ghost" onclick="_adminAction(\'/Admin/StartMusic\', null, \'Start music\')">Start music</button>'
+               + '<button class="danger" onclick="_adminAction(\'/Admin/StopMusic\', null, \'Stop music\')">Stop music</button>'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/StartPrompt\', null, \'Start prompt LLM\')">Start prompt LLM</button>'
                + '<button class="danger" onclick="_adminAction(\'/Admin/StopPrompt\', null, \'Stop prompt LLM\')">Stop prompt LLM</button>'
                + '</div>';

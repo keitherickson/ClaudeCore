@@ -24,6 +24,8 @@ public class AdminController : Controller
     private readonly ComfyUiServerControl _comfyControl;
     private readonly AudioServerControl _audioControl;
     private readonly SoundGenService _soundGen;
+    private readonly MusicServerControl _musicControl;
+    private readonly MusicGenService _musicGen;
     private readonly VideoBackendCoordinator _backends;
     private readonly ActiveModelStore _activeModel;
     private readonly VideoModelsOptions _videoModels;
@@ -41,10 +43,12 @@ public class AdminController : Controller
         AudioServerControl audioControl, SoundGenService soundGen, VideoBackendCoordinator backends,
         ActiveModelStore activeModel, IOptions<VideoModelsOptions> videoModels, MaxineUpscaleService maxine,
         VideoSpeedService speed, SystemStatsService stats, LayoutStore layouts, RunRegistry runs,
-        PromptServerControl promptControl, PromptEnhanceService promptSvc, ILogger<AdminController> logger)
+        PromptServerControl promptControl, PromptEnhanceService promptSvc,
+        MusicServerControl musicControl, MusicGenService musicGen, ILogger<AdminController> logger)
     {
         _ltx = ltx; _ltxControl = ltxControl; _comfyControl = comfyControl;
         _audioControl = audioControl; _soundGen = soundGen; _backends = backends;
+        _musicControl = musicControl; _musicGen = musicGen;
         _activeModel = activeModel; _videoModels = videoModels.Value; _maxine = maxine;
         _speed = speed; _stats = stats; _layouts = layouts; _runs = runs;
         _promptControl = promptControl; _promptSvc = promptSvc; _logger = logger;
@@ -74,6 +78,10 @@ public class AdminController : Controller
         // --- Stable Audio server (on-demand; parks on CPU, takes the GPU only during /generate) ---
         var (audioOk, audioErr) = await _soundGen.GetHealthAsync(ct);
         var audio = new { reachable = audioOk, portListening = _audioControl.IsPortListening(), port = _audioControl.Port, error = audioErr };
+
+        // --- MusicGen server (on-demand; same lifecycle as Stable Audio) ---
+        var (musicOk, musicErr) = await _musicGen.GetHealthAsync(ct);
+        var music = new { reachable = musicOk, portListening = _musicControl.IsPortListening(), port = _musicControl.Port, error = musicErr };
 
         // --- ComfyUI server (NVFP4 / Wan / AI-upscale share it) ---
         var comfy = new { portListening = _comfyControl.IsPortListening(), port = _comfyControl.Port, gpuIndex = _comfyControl.GpuIndex };
@@ -107,6 +115,7 @@ public class AdminController : Controller
             models = _videoModels.Models.Select(m => new { m.Id, m.Label, m.Backend, m.Description }),
             ltx,
             audio,
+            music,
             comfy,
             prompt,
             maxine = new { ready = maxineReady, error = maxineProblem },
@@ -227,6 +236,22 @@ public class AdminController : Controller
     public async Task<IActionResult> StopAudio(CancellationToken ct)
     {
         var r = await _audioControl.StopAsync(ct);
+        return Json(new { ok = r.Ok, output = r.Output });
+    }
+
+    /// <summary>Starts the local MusicGen server (detached; the model loads in the background).</summary>
+    [HttpPost]
+    public IActionResult StartMusic()
+    {
+        var ok = _musicControl.StartDetached();
+        return Json(new { ok, error = ok ? null : "Music start script not found." });
+    }
+
+    /// <summary>Stops the local MusicGen server (frees its VRAM). Returns the script output.</summary>
+    [HttpPost]
+    public async Task<IActionResult> StopMusic(CancellationToken ct)
+    {
+        var r = await _musicControl.StopAsync(ct);
         return Json(new { ok = r.Ok, output = r.Output });
     }
 
