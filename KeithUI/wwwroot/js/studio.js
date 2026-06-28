@@ -595,14 +595,14 @@
         var save = LiteGraph.createNode("Preview Save/save");   save.size = [420, 360]; graph.add(save);
         // Seed widgets so the default graph passes validation and runs as-is: a raw idea for the
         // loop (it enhances this into its "enhanced" field on the first run). Default to the retry
-        // loop: 4 iterations, pausing after each segment so you can review the conditioning frame
+        // loop: 3 iterations, pausing after each segment so you can review the conditioning frame
         // and adjust/retry the enhanced prompt before continuing.
         var setW = function (node, name, val) {
             var wgt = (node.widgets || []).find(function (x) { return x.name === name; });
             if (wgt) wgt.value = val;
         };
         setW(loop, "prompt", "a serene mountain lake at sunrise, mist rising off the water");
-        setW(loop, "iterations", 4);
+        setW(loop, "iterations", 3);
         setW(loop, "pauseEachStep", true);
         // Lay the graph out in left→right columns using each node's ACTUAL size, so nothing
         // overlaps regardless of how tall the loop node computes.
