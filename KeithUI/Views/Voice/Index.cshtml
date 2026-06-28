@@ -1,0 +1,71 @@
+@{
+    ViewData["Title"] = "Voice Changer";
+}
+
+<div class="voice-page">
+    <h1 class="mb-1">Voice Changer</h1>
+    <p class="text-muted">Record from your microphone or upload a clip, apply a local ffmpeg effect, then play, download, or send it to the studio.</p>
+
+    <div id="vc-status" class="alert alert-secondary py-2" role="status">Ready.</div>
+
+    <div class="row g-4">
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header">1. Source</div>
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <button id="vc-record" type="button" class="btn btn-danger">● Record</button>
+                        <button id="vc-stop" type="button" class="btn btn-outline-secondary" disabled>■ Stop</button>
+                        <span id="vc-timer" class="ms-1 font-monospace">0:00</span>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="vc-file" class="form-label mb-1">…or upload an audio/video file</label>
+                        <input id="vc-file" type="file" class="form-control" accept="audio/*,video/*" />
+                    </div>
+
+                    <div id="vc-source-wrap" class="mt-3 d-none">
+                        <label class="form-label mb-1">Source clip</label>
+                        <audio id="vc-source" controls class="w-100"></audio>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-header">2. Effect</div>
+                <div class="card-body">
+                    <div id="vc-presets" class="d-flex flex-wrap gap-2 mb-3">
+                        <span class="text-muted">Loading effects…</span>
+                    </div>
+
+                    <div id="vc-pitch-wrap" class="mb-3">
+                        <label for="vc-pitch" class="form-label mb-1">
+                            Pitch: <span id="vc-pitch-val">0</span> semitones
+                        </label>
+                        <input id="vc-pitch" type="range" class="form-range" min="-12" max="12" step="1" value="0" />
+                        <div class="form-text">Used by the <strong>Custom pitch</strong> effect (−12 = octave down, +12 = octave up).</div>
+                    </div>
+
+                    <button id="vc-apply" type="button" class="btn btn-primary" disabled>Apply effect</button>
+                </div>
+            </div>
+
+            <div id="vc-result-wrap" class="card mt-3 d-none">
+                <div class="card-header">3. Result</div>
+                <div class="card-body">
+                    <audio id="vc-result" controls class="w-100 mb-3"></audio>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a id="vc-download" class="btn btn-outline-primary" download>Download</a>
+                        <button id="vc-send" type="button" class="btn btn-outline-success">Send to Studio</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/voice.js" asp-append-version="true"></script>
+}

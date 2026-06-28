@@ -6,6 +6,12 @@
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "C:\\ClaudeCore\\ClaudeCore\\KeithUI\\KeithUI.csproj", "--no-build"],
       "port": 5099
+    },
+    {
+      "name": "keithui-voice",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "C:\\ClaudeCore\\ClaudeCore\\.claude\\worktrees\\kind-volhard-c08a55\\KeithUI\\KeithUI.csproj", "--no-build", "--urls", "http://127.0.0.1:5097"],
+      "port": 5097
     }
   ]
 }
