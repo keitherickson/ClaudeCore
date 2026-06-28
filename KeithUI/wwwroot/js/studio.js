@@ -397,7 +397,7 @@
         addMultilineText(this, "enhanced", "", 4);
         this.addWidget("combo", "resolution", "720p", null, { values: ["540p", "720p", "1080p"] });
         this.addWidget("number", "secPerSeg", 10, null, { min: 1, max: 30, step: 10, precision: 0 });
-        this.addWidget("number", "iterations", 3, null, { min: 2, max: 8, step: 10, precision: 0 });   // X
+        this.addWidget("number", "iterations", 2, null, { min: 2, max: 8, step: 10, precision: 0 });   // X
         this.addWidget("number", "trimSeconds", 1, null, { min: 0, max: 30, step: 10, precision: 1 });
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
         // When on, the run pauses after each iteration so you can review the frame and edit the
@@ -599,14 +599,14 @@
         var save = LiteGraph.createNode("Preview Save/save");   save.size = [420, 360]; graph.add(save);
         // Seed widgets so the default graph passes validation and runs as-is: a raw idea for the
         // loop (it enhances this into its "enhanced" field on the first run). Default to the retry
-        // loop: 3 iterations, pausing after each segment so you can review the conditioning frame
+        // loop: 2 iterations, pausing after each segment so you can review the conditioning frame
         // and adjust/retry the enhanced prompt before continuing.
         var setW = function (node, name, val) {
             var wgt = (node.widgets || []).find(function (x) { return x.name === name; });
             if (wgt) wgt.value = val;
         };
         setW(loop, "prompt", "a serene mountain lake at sunrise, mist rising off the water");
-        setW(loop, "iterations", 3);
+        setW(loop, "iterations", 2);
         setW(loop, "pauseEachStep", true);
         // Lay the graph out in left→right columns using each node's ACTUAL size, so nothing
         // overlaps regardless of how tall the loop node computes.
