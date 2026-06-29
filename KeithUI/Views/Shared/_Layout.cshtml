@@ -24,7 +24,9 @@
                             <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Voice" asp-action="Index">Voice Changer</a>
+                            @* Absolute loopback URL: the mic (getUserMedia/MediaRecorder) only works
+                               in a secure context, which http://www.keithui.com is not — but 127.0.0.2 is. *@
+                            <a class="nav-link text-dark" href="http://127.0.0.2:80/Voice">Voice Changer</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
