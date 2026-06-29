@@ -608,37 +608,17 @@
     }
     window.addEventListener("resize", resize);
 
+    // The default graph that loads on startup and on Reset — baked from the saved
+    // "default" layout (Load Image → Generate Video → Preview Save, with Enhance Prompt /
+    // Generate Music / Add Audio / Load Video parked on the canvas). Stored as JSON and
+    // parsed fresh each call, so Reset always rebuilds a clean copy. To change the default,
+    // re-save a layout and replace this blob.
+    var DEFAULT_GRAPH_JSON = `{"last_node_id":9,"last_link_id":4,"nodes":[{"id":3,"type":"Preview Save/save","pos":[760,60],"size":[420,360],"flags":{},"order":6,"mode":0,"inputs":[{"name":"video","type":"VIDEO","link":4}],"properties":{},"widgets_values":["output",null],"color":"#444","bgcolor":"#2a2a2a"},{"id":1,"type":"Image/load_image","pos":[40,60],"size":[220,232],"flags":{},"order":0,"mode":0,"outputs":[{"name":"image","type":"IMAGE","links":[3],"slot_index":0}],"properties":{},"widgets_values":["",null],"color":"#355","bgcolor":"#2a2a2a"},{"id":9,"type":"Video/load_video","pos":[100,654],"size":[220,232],"flags":{},"order":4,"mode":0,"outputs":[{"name":"video","type":"VIDEO","links":null}],"properties":{},"widgets_values":["",null],"color":"#454","bgcolor":"#2a2a2a"},{"id":8,"type":"Sound/add_audio","pos":[419,788],"size":[200,60],"flags":{},"order":3,"mode":0,"inputs":[{"name":"video","type":"VIDEO","link":null},{"name":"audio","type":"AUDIO","link":null}],"outputs":[{"name":"video","type":"VIDEO","links":null}],"properties":{},"color":"#553","bgcolor":"#2a2a2a"},{"id":6,"type":"Sound/music","pos":[401,484],"size":{"0":300,"1":165},"flags":{},"order":1,"mode":0,"inputs":[{"name":"prompt","type":"TEXT","link":null}],"outputs":[{"name":"audio","type":"AUDIO","links":null}],"properties":{},"widgets_values":["",15],"color":"#535","bgcolor":"#2a2a2a"},{"id":5,"type":"Prompts/enhance","pos":[42,381],"size":{"0":300,"1":173},"flags":{},"order":2,"mode":0,"outputs":[{"name":"prompt","type":"TEXT","links":null}],"properties":{},"widgets_values":["","cinematic","(default)"],"color":"#556","bgcolor":"#2a2a2a"},{"id":4,"type":"Video/generate","pos":[387,69],"size":{"0":320,"1":336},"flags":{},"order":5,"mode":0,"inputs":[{"name":"image","type":"IMAGE","link":3},{"name":"audio","type":"AUDIO","link":null},{"name":"prompt","type":"TEXT","link":null}],"outputs":[{"name":"video","type":"VIDEO","links":[4],"slot_index":0}],"properties":{},"widgets_values":["bf16-2.3","","music, background music, soundtrack, score","540p",20,"16:9"],"color":"#345","bgcolor":"#2a2a2a"}],"links":[[3,1,0,4,0,"IMAGE"],[4,4,0,3,0,"VIDEO"]],"groups":[],"config":{},"extra":{},"version":0.4}`;
+
     function starterGraph() {
-        graph.clear();
-        // Minimal default: a start image feeds the retry loop, which saves straight to preview.
-        // (No sound nodes — add Sound/Add Audio manually when you want a track.) The loop does
-        // its own prompt enhancement, so there's no separate Enhance Prompt node here either.
-        var img = LiteGraph.createNode("Image/load_image"); graph.add(img);
-        // The loop: generate → trim tail → take frame → generate next, repeated "iterations"
-        // times, stitched into one continuous video, then saved.
-        var loop = LiteGraph.createNode("Video/trim_continue"); graph.add(loop);
-        var save = LiteGraph.createNode("Preview Save/save");   save.size = [420, 360]; graph.add(save);
-        // Seed widgets so the default graph passes validation and runs as-is: a raw idea for the
-        // loop (it enhances this into its "enhanced" field on the first run). Default to the retry
-        // loop: 2 iterations, pausing after each segment so you can review the conditioning frame
-        // and adjust/retry the enhanced prompt before continuing.
-        var setW = function (node, name, val) {
-            var wgt = (node.widgets || []).find(function (x) { return x.name === name; });
-            if (wgt) wgt.value = val;
-        };
-        setW(loop, "prompt", "a serene mountain lake at sunrise, mist rising off the water");
-        setW(loop, "iterations", 2);
-        setW(loop, "pauseEachStep", true);
-        // Lay the graph out in left→right columns using each node's ACTUAL size, so nothing
-        // overlaps regardless of how tall the loop node computes.
-        (function layout() {
-            var X0 = 40, Y0 = 60, COL_GAP = 90;
-            img.pos  = [X0, Y0];
-            loop.pos = [X0 + img.size[0] + COL_GAP, Y0];
-            save.pos = [loop.pos[0] + loop.size[0] + COL_GAP, Y0];
-        })();
-        img.connect(0, loop, 0);   // Load Image -> Trim & Continue (start frame, slot 0)
-        loop.connect(0, save, 0);  // Trim & Continue -> Save (video, slot 0)
+        graph.configure(migrateGraphData(JSON.parse(DEFAULT_GRAPH_JSON)));
+        reattachThumbnails();   // re-fetch Load Image/Video thumbnails once widget values exist
+        refitNodes();           // grow any node whose stored size predates a new widget
         graph.start();
     }
     starterGraph();
