@@ -144,6 +144,12 @@
                    + '<span class="v">' + (d.music.reachable ? "model loaded" : d.music.portListening ? "starting" : "stopped") + ' · :' + d.music.port + '</span></div>';
                 if (d.music.error) h += '<div class="err">' + esc(d.music.error) + '</div>';
             }
+            // RVC voice conversion
+            if (d.rvc) {
+                h += '<div class="row">' + dot(backendState(d.rvc)) + '<span class="k">RVC voice</span>'
+                   + '<span class="v">' + (d.rvc.reachable ? "ready" : d.rvc.portListening ? "starting" : "stopped") + ' · :' + d.rvc.port + '</span></div>';
+                if (d.rvc.error) h += '<div class="err">' + esc(d.rvc.error) + '</div>';
+            }
             // Prompt-enhancer LLM
             if (d.prompt) {
                 h += '<div class="row">' + dot(backendState(d.prompt)) + '<span class="k">Prompt LLM</span>'
@@ -172,6 +178,8 @@
                + '<button class="danger" onclick="_adminAction(\'/Admin/StopAudio\', null, \'Stop audio\')">Stop audio</button>'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/StartMusic\', null, \'Start music\')">Start music</button>'
                + '<button class="danger" onclick="_adminAction(\'/Admin/StopMusic\', null, \'Stop music\')">Stop music</button>'
+               + '<button class="ghost" onclick="_adminAction(\'/Admin/StartRvc\', null, \'Start RVC\')">Start RVC</button>'
+               + '<button class="danger" onclick="_adminAction(\'/Admin/StopRvc\', null, \'Stop RVC\')">Stop RVC</button>'
                + '<button class="ghost" onclick="_adminAction(\'/Admin/StartPrompt\', null, \'Start prompt LLM\')">Start prompt LLM</button>'
                + '<button class="danger" onclick="_adminAction(\'/Admin/StopPrompt\', null, \'Stop prompt LLM\')">Stop prompt LLM</button>'
                + '</div>';

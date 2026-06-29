@@ -11,12 +11,14 @@ namespace KeithUI.Controllers;
 public class VoiceController : Controller
 {
     private readonly VoiceChangerService _voice;
+    private readonly RvcVoiceService _rvc;    // AI voice conversion (rvc-python server)
     private readonly LtxVideoService _ltx;   // for staging the result into the studio input dir
     private readonly ILogger<VoiceController> _logger;
 
-    public VoiceController(VoiceChangerService voice, LtxVideoService ltx, ILogger<VoiceController> logger)
+    public VoiceController(VoiceChangerService voice, RvcVoiceService rvc, LtxVideoService ltx, ILogger<VoiceController> logger)
     {
         _voice = voice;
+        _rvc = rvc;
         _ltx = ltx;
         _logger = logger;
     }
@@ -67,6 +69,51 @@ public class VoiceController : Controller
     }
 
     public sealed record ProcessRequest(string Path, string Effect, double Pitch);
+
+    /// <summary>Lists the available RVC target voices (starts the server on demand).</summary>
+    [HttpGet]
+    public async Task<IActionResult> Voices(CancellationToken ct)
+    {
+        try
+        {
+            var voices = await _rvc.ListVoicesAsync(ct);
+            return Json(new { ok = true, voices });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Listing RVC voices failed");
+            return Json(new { ok = false, error = ex.Message, voices = Array.Empty<string>() });
+        }
+    }
+
+    /// <summary>Converts a staged clip to an RVC target voice; returns the produced file + playback URL.</summary>
+    [HttpPost]
+    public async Task<IActionResult> Convert([FromBody] ConvertRequest? req, CancellationToken ct)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.Path))
+            return BadRequest(new { ok = false, error = "A staged clip is required." });
+        if (!_voice.IsInputFile(req.Path))
+            return BadRequest(new { ok = false, error = "The clip is not a staged input file." });
+
+        try
+        {
+            var result = await _rvc.ConvertAsync(req.Path, req.Voice, req.Transpose, ct);
+            return Json(new
+            {
+                ok = true,
+                path = result.SavedPath,
+                name = result.FileName,
+                url = Url.Action(nameof(Audio), new { path = result.SavedPath }),
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "RVC convert to '{Voice}' failed", req.Voice);
+            return BadRequest(new { ok = false, error = ex.Message });
+        }
+    }
+
+    public sealed record ConvertRequest(string Path, string? Voice, int Transpose);
 
     /// <summary>Serves a produced clip for playback/download (guarded to the output tree).</summary>
     [HttpGet]

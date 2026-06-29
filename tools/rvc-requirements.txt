@@ -1,0 +1,28 @@
+# Setup for the ClaudeCore RVC (voice conversion) server (tools/run-rvc-server.ps1).
+#
+# We run rvc-python's BUILT-IN API server (`python -m rvc_python api`), so there is no
+# custom server code — ClaudeCore's RvcVoiceService just calls its HTTP endpoints.
+#
+# CREATE THE VENV (Python 3.11) and install — torch cu128 FIRST, because rvc-python's
+# documented default is cu118, which will NOT run on a Blackwell/sm_120 card (the 5090):
+#
+#   py -3.11 -m venv C:\ClaudeCore\rvc-venv
+#   C:\ClaudeCore\rvc-venv\Scripts\python -m pip install --upgrade pip
+#   C:\ClaudeCore\rvc-venv\Scripts\python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   C:\ClaudeCore\rvc-venv\Scripts\python -m pip install rvc-python
+#
+# Verify torch sees the GPU:
+#   C:\ClaudeCore\rvc-venv\Scripts\python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+#
+# BASE MODELS (HuBERT / RMVPE): downloaded automatically by rvc-python on the first
+# conversion (HF_HUB_DISABLE_XET=1 is set by the launcher to avoid the stalling xet backend).
+#
+# TARGET VOICE MODELS: RVC needs at least one trained voice. Put each under the models dir
+# (default C:\ClaudeCore\rvc-models) as either:
+#     <name>\<name>.pth   (+ optional <name>\<name>.index for better timbre)
+#   or  <name>.pth
+# Community voices: https://weights.gg  and  https://voice-models.com  (download the .pth/.index).
+# The server lists them at GET /models; the Voice page's "Load voices" button shows them.
+#
+# Start the server:  powershell -ExecutionPolicy Bypass -File tools\run-rvc-server.ps1
+# (Admin page Start/Stop also drive it. Port 8773 must match LocalRvc:BaseUrl in appsettings.json.)

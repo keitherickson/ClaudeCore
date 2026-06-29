@@ -126,6 +126,20 @@ public static class ServiceCollectionExtensions
         // Start/stop control for the music server (Admin page); not an auto-start service.
         services.AddSingleton<MusicServerControl>();
 
+        // Self-hosted RVC (Retrieval-based Voice Conversion): we run rvc-python's built-in
+        // API server (tools/run-rvc-server.ps1) and call it over HTTP. Powers the Voice page's
+        // AI voice conversion. Generous timeout since the first call loads base models.
+        services.Configure<LocalRvcOptions>(configuration.GetSection(LocalRvcOptions.SectionName));
+        services.AddHttpClient<LocalRvcClient>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<LocalRvcOptions>>().Value;
+            client.BaseAddress = new Uri(opts.BaseUrl);
+            client.Timeout = TimeSpan.FromMinutes(opts.TimeoutMinutes);
+        });
+        services.AddScoped<RvcVoiceService>();
+        // Start/stop control for the RVC server (Admin page); not an auto-start service.
+        services.AddSingleton<RvcServerControl>();
+
         // Self-hosted prompt-enhancer LLM: a local Python server (tools/run-prompt-server.ps1)
         // on the 4090 that rewrites a short idea into a vivid text-to-video prompt. Generous
         // timeout since the first call can include the model load.

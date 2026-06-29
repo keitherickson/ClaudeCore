@@ -18,6 +18,12 @@
     const resultAudio = $("vc-result");
     const downloadLink = $("vc-download");
     const sendBtn = $("vc-send");
+    // AI Voice (RVC) card.
+    const loadVoicesBtn = $("vc-load-voices");
+    const voiceSelect = $("vc-voice");
+    const rvcPitch = $("vc-rvc-pitch");
+    const rvcPitchVal = $("vc-rvc-pitch-val");
+    const convertBtn = $("vc-convert");
 
     // App state.
     let stagedPath = null;     // server path of the staged source clip
@@ -35,6 +41,15 @@
 
     function refreshApply() {
         applyBtn.disabled = !(stagedPath && selectedEffect);
+        convertBtn.disabled = !(stagedPath && voiceSelect.value);
+    }
+
+    function showResult(data) {
+        resultPath = data.path;
+        resultAudio.src = data.url;
+        downloadLink.href = data.url;
+        resultWrap.classList.remove("d-none");
+        setStatus("Done — " + data.name, "success");
     }
 
     // --- Recording -----------------------------------------------------------
@@ -166,13 +181,62 @@
             });
             const data = await resp.json();
             if (!resp.ok || !data.ok) throw new Error(data.error || "Processing failed.");
-            resultPath = data.path;
-            resultAudio.src = data.url;
-            downloadLink.href = data.url;
-            resultWrap.classList.remove("d-none");
-            setStatus("Done — " + data.name, "success");
+            showResult(data);
         } catch (err) {
             setStatus("Processing failed: " + err.message, "danger");
+        } finally {
+            refreshApply();
+        }
+    }
+
+    // --- AI Voice (RVC) ------------------------------------------------------
+
+    rvcPitch.addEventListener("input", () => { rvcPitchVal.textContent = rvcPitch.value; });
+    voiceSelect.addEventListener("change", refreshApply);
+
+    async function loadVoices() {
+        loadVoicesBtn.disabled = true;
+        setStatus("Starting RVC server and loading voices… (first start can take a while)", "info");
+        try {
+            const resp = await fetch("/Voice/Voices");
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.error || "Could not list voices.");
+            voiceSelect.innerHTML = "";
+            if (!data.voices.length) {
+                voiceSelect.innerHTML = '<option value="">(no voice models installed)</option>';
+                setStatus("RVC is running but no voice models were found in the models folder.", "warning");
+            } else {
+                data.voices.forEach((v) => {
+                    const o = document.createElement("option");
+                    o.value = v; o.textContent = v;
+                    voiceSelect.appendChild(o);
+                });
+                voiceSelect.disabled = false;
+                setStatus("Loaded " + data.voices.length + " voice(s). Pick one and convert.", "success");
+            }
+        } catch (err) {
+            setStatus("Loading voices failed: " + err.message, "danger");
+        } finally {
+            loadVoicesBtn.disabled = false;
+            refreshApply();
+        }
+    }
+
+    async function convertVoice() {
+        if (!stagedPath || !voiceSelect.value) return;
+        convertBtn.disabled = true;
+        setStatus("Converting voice… (first run loads the model)", "info");
+        try {
+            const resp = await fetch("/Voice/Convert", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: stagedPath, voice: voiceSelect.value, transpose: Number(rvcPitch.value) }),
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) throw new Error(data.error || "Conversion failed.");
+            showResult(data);
+        } catch (err) {
+            setStatus("Conversion failed: " + err.message, "danger");
         } finally {
             refreshApply();
         }
@@ -232,6 +296,8 @@
     stopBtn.addEventListener("click", stopRecording);
     applyBtn.addEventListener("click", applyEffect);
     sendBtn.addEventListener("click", sendToStudio);
+    loadVoicesBtn.addEventListener("click", loadVoices);
+    convertBtn.addEventListener("click", convertVoice);
 
     loadPresets();
     applyRecordingSupport();

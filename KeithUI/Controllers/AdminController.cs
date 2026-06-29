@@ -26,6 +26,8 @@ public class AdminController : Controller
     private readonly SoundGenService _soundGen;
     private readonly MusicServerControl _musicControl;
     private readonly MusicGenService _musicGen;
+    private readonly RvcServerControl _rvcControl;
+    private readonly RvcVoiceService _rvc;
     private readonly VideoBackendCoordinator _backends;
     private readonly ActiveModelStore _activeModel;
     private readonly VideoModelsOptions _videoModels;
@@ -44,11 +46,13 @@ public class AdminController : Controller
         ActiveModelStore activeModel, IOptions<VideoModelsOptions> videoModels, MaxineUpscaleService maxine,
         VideoSpeedService speed, SystemStatsService stats, LayoutStore layouts, RunRegistry runs,
         PromptServerControl promptControl, PromptEnhanceService promptSvc,
-        MusicServerControl musicControl, MusicGenService musicGen, ILogger<AdminController> logger)
+        MusicServerControl musicControl, MusicGenService musicGen,
+        RvcServerControl rvcControl, RvcVoiceService rvc, ILogger<AdminController> logger)
     {
         _ltx = ltx; _ltxControl = ltxControl; _comfyControl = comfyControl;
         _audioControl = audioControl; _soundGen = soundGen; _backends = backends;
         _musicControl = musicControl; _musicGen = musicGen;
+        _rvcControl = rvcControl; _rvc = rvc;
         _activeModel = activeModel; _videoModels = videoModels.Value; _maxine = maxine;
         _speed = speed; _stats = stats; _layouts = layouts; _runs = runs;
         _promptControl = promptControl; _promptSvc = promptSvc; _logger = logger;
@@ -83,6 +87,10 @@ public class AdminController : Controller
         var (musicOk, musicErr) = await _musicGen.GetHealthAsync(ct);
         var music = new { reachable = musicOk, portListening = _musicControl.IsPortListening(), port = _musicControl.Port, error = musicErr };
 
+        // --- RVC voice-conversion server (on-demand; same lifecycle) ---
+        var (rvcOk, rvcErr) = await _rvc.GetHealthAsync(ct);
+        var rvc = new { reachable = rvcOk, portListening = _rvcControl.IsPortListening(), port = _rvcControl.Port, error = rvcErr };
+
         // --- ComfyUI server (NVFP4 / Wan / AI-upscale share it) ---
         var comfy = new { portListening = _comfyControl.IsPortListening(), port = _comfyControl.Port, gpuIndex = _comfyControl.GpuIndex };
 
@@ -116,6 +124,7 @@ public class AdminController : Controller
             ltx,
             audio,
             music,
+            rvc,
             comfy,
             prompt,
             maxine = new { ready = maxineReady, error = maxineProblem },
@@ -252,6 +261,22 @@ public class AdminController : Controller
     public async Task<IActionResult> StopMusic(CancellationToken ct)
     {
         var r = await _musicControl.StopAsync(ct);
+        return Json(new { ok = r.Ok, output = r.Output });
+    }
+
+    /// <summary>Starts the local RVC voice-conversion server (detached; models load lazily).</summary>
+    [HttpPost]
+    public IActionResult StartRvc()
+    {
+        var ok = _rvcControl.StartDetached();
+        return Json(new { ok, error = ok ? null : "RVC start script not found." });
+    }
+
+    /// <summary>Stops the local RVC server (frees its VRAM). Returns the script output.</summary>
+    [HttpPost]
+    public async Task<IActionResult> StopRvc(CancellationToken ct)
+    {
+        var r = await _rvcControl.StopAsync(ct);
         return Json(new { ok = r.Ok, output = r.Output });
     }
 
