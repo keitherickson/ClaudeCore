@@ -203,6 +203,10 @@ public sealed class GraphExecutor
             {
                 var model = Str(0, "bf16-2.3");
                 await EnsureModelReady(model, log, ct);
+                // "attempts" (widget 6): generate this many clips from the SAME prompt/settings —
+                // each LTX call uses a fresh seed, so you get variations to pick from. All are
+                // saved to the output dir; the last one flows downstream (e.g. to Preview Save).
+                var attempts = Math.Clamp(Num(6, 1), 1, 10);
                 var req = new GenerateVideoRequest
                 {
                     Prompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn,
@@ -215,20 +219,28 @@ public sealed class GraphExecutor
                     AudioPath = audIn,
                     Audio = audIn is not null,
                 };
-                await log($"Generating [{model}] {req.Resolution} {req.Duration}s…");
-                var genTask = _ltx.GenerateAsync(req, ct);
-                while (await Task.WhenAny(genTask, Task.Delay(1500, ct)) != genTask)
+                string? lastPath = null;
+                for (var attempt = 1; attempt <= attempts; attempt++)
                 {
-                    try
+                    var suffix = attempts > 1 ? $" (attempt {attempt}/{attempts})" : "";
+                    await log($"Generating [{model}] {req.Resolution} {req.Duration}s{suffix}…");
+                    var genTask = _ltx.GenerateAsync(req, ct);
+                    while (await Task.WhenAny(genTask, Task.Delay(1500, ct)) != genTask)
                     {
-                        var p = await _ltx.GetProgressAsync(ct);
-                        if (p is not null) await emit(new { type = "node-progress", node = n.id, pct = p.Progress });
+                        try
+                        {
+                            var p = await _ltx.GetProgressAsync(ct);
+                            // Spread each attempt's progress across the whole node for a smooth bar.
+                            if (p is not null)
+                                await emit(new { type = "node-progress", node = n.id, pct = (int)((attempt - 1 + p.Progress / 100.0) / attempts * 100) });
+                        }
+                        catch { /* progress is best-effort */ }
                     }
-                    catch { /* progress is best-effort */ }
+                    var r = await genTask;
+                    lastPath = r.SavedPath;
+                    await log($"Generate Video [{model}]{suffix}: {Path.GetFileName(r.SavedPath)}");
                 }
-                var r = await genTask;
-                await log($"Generate Video [{model}]: {Path.GetFileName(r.SavedPath)}");
-                return r.SavedPath;
+                return lastPath;
             }
             case "Video/extend":
             {
