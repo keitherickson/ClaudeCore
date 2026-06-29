@@ -362,6 +362,10 @@
         if (this.size[0] < 300) this.size[0] = 300;
     });
 
+    // Default negative prompt for Generate Video — suppresses LTX-2.3's generated music
+    // by default. Shared so a fresh node and an old-layout migration use the same value.
+    var NEG_PROMPT_DEFAULT = "music, background music, soundtrack, score";
+
     define("Video/generate", "Generate Video", "#345", function () {
         this.addInput("image", LiteGraph.IMAGE);   // optional (i2v / Wan)
         this.addInput("audio", LiteGraph.AUDIO);    // optional (audio-to-video)
@@ -369,13 +373,14 @@
         this.addOutput("video", LiteGraph.VIDEO);
         this.addWidget("combo", "model", "bf16-2.3", null, { values: ["bf16-2.3", "nvfp4-2.3", "wan2.2"] });
         addMultilineText(this, "prompt", "", 5);
+        // Negative prompt (widget 2, sits directly under the prompt): terms to steer
+        // generation AWAY from. LTX-2.3 is an audio+video model, so the default
+        // suppresses its generated music track while leaving speech/ambience. Edit or
+        // clear it freely; empty = no negative.
+        addMultilineText(this, "negative prompt", NEG_PROMPT_DEFAULT, 2);
         this.addWidget("combo", "resolution", "540p", null, { values: ["540p", "720p", "1080p"] });
         this.addWidget("combo", "duration", 20, null, { values: [5, 6, 8, 10, 12, 14, 16, 18, 20] });  // LTX-allowed seconds
         this.addWidget("combo", "aspect", "16:9", null, { values: ["16:9", "9:16"] });
-        // Negative prompt (widget 5): terms to steer generation AWAY from. LTX-2.3 is an
-        // audio+video model, so "music, soundtrack" suppresses its generated music track
-        // while leaving speech/ambience. Edit or clear it freely; empty = no negative.
-        addMultilineText(this, "negative", "music, background music, soundtrack, score", 2);
         this.size = this.computeSize();          // size to fit every control inside the border
         if (this.size[0] < 320) this.size[0] = 320;
     });
@@ -990,6 +995,22 @@
         });
     }
 
+    // The "negative prompt" widget was inserted at index 2 (under prompt). Layouts saved
+    // before it existed serialize Generate Video with 5 widget values in the OLD order
+    // [model, prompt, resolution, duration, aspect]; loaded as-is, their values would shift
+    // (resolution → negative prompt, etc.). Splice the default negative prompt into
+    // position 2 BEFORE configure() so old graphs map onto the new widget order and pick up
+    // the same music-suppressing default as a fresh node. Mutates and returns the data.
+    // (No-op for graphs already saved with the 6-value new order.)
+    function migrateGraphData(data) {
+        if (!data || !Array.isArray(data.nodes)) return data;
+        data.nodes.forEach(function (nd) {
+            if (nd.type === "Video/generate" && Array.isArray(nd.widgets_values) && nd.widgets_values.length === 5)
+                nd.widgets_values.splice(2, 0, NEG_PROMPT_DEFAULT);
+        });
+        return data;
+    }
+
     document.getElementById("save-btn").addEventListener("click", function () {
         var json = JSON.stringify(graph.serialize(), null, 2);
         var a = document.createElement("a");
@@ -1007,7 +1028,7 @@
         var reader = new FileReader();
         reader.onload = function () {
             try {
-                var data = JSON.parse(reader.result);
+                var data = migrateGraphData(JSON.parse(reader.result));
                 nodeStatus = {}; nodeProgress = {};
                 graph.configure(data);
                 graph.start();
@@ -1087,6 +1108,7 @@
 
     function applyLoadedGraph(data, label) {
         nodeStatus = {}; nodeProgress = {}; clearVideoOverlays();
+        migrateGraphData(data);
         graph.configure(data);
         graph.start();
         reattachThumbnails();

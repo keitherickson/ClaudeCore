@@ -206,11 +206,11 @@ public sealed class GraphExecutor
                 var req = new GenerateVideoRequest
                 {
                     Prompt = string.IsNullOrWhiteSpace(promptIn) ? Str(1) : promptIn,
-                    Resolution = Str(2, "540p"),
-                    Duration = Num(3, 5),
+                    NegativePrompt = Str(2, ""),   // e.g. "music, soundtrack" to suppress LTX-2.3's generated music
+                    Resolution = Str(3, "540p"),
+                    Duration = Num(4, 5),
                     Fps = _defaults.Fps,
-                    AspectRatio = Str(4, "16:9"),
-                    NegativePrompt = Str(5, ""),   // e.g. "music, soundtrack" to suppress LTX-2.3's generated music
+                    AspectRatio = Str(5, "16:9"),
                     ImagePath = imgIn,
                     AudioPath = audIn,
                     Audio = audIn is not null,
