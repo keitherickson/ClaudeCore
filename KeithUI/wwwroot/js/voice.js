@@ -200,6 +200,32 @@
         }
     }
 
+    // Mic capture (getUserMedia / MediaRecorder) only works in a SECURE CONTEXT:
+    // HTTPS, or a loopback host (localhost / 127.x). The hosted app at
+    // http://www.keithui.com is plain HTTP on a custom hostname, so the browser
+    // disables navigator.mediaDevices there. Detect that up front, disable Record,
+    // and point the user at the loopback URL (uploading a file still works).
+    function recordingSupported() {
+        return !!(window.isSecureContext &&
+            navigator.mediaDevices && navigator.mediaDevices.getUserMedia &&
+            window.MediaRecorder);
+    }
+
+    function applyRecordingSupport() {
+        if (recordingSupported()) return;
+        recordBtn.disabled = true;
+        stopBtn.disabled = true;
+        recordBtn.title = "Recording needs a secure (HTTPS / localhost) page";
+        if (!window.isSecureContext) {
+            var alt = location.protocol + "//127.0.0.2" +
+                (location.port && location.port !== "80" ? ":" + location.port : "") + location.pathname;
+            setStatus("Recording is disabled here — the browser only allows the mic on a secure page. " +
+                "Open " + alt + " (a loopback address) to record, or just upload a file below.", "warning");
+        } else {
+            setStatus("This browser can't record audio (MediaRecorder unavailable). Upload a file below instead.", "warning");
+        }
+    }
+
     // --- Wire up -------------------------------------------------------------
 
     recordBtn.addEventListener("click", startRecording);
@@ -208,4 +234,5 @@
     sendBtn.addEventListener("click", sendToStudio);
 
     loadPresets();
+    applyRecordingSupport();
 })();
