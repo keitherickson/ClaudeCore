@@ -280,6 +280,19 @@ public class AdminController : Controller
         return Json(new { ok = r.Ok, output = r.Output });
     }
 
+    /// <summary>Installs an RVC target voice from a URL into the models dir. Returns the script output.</summary>
+    [HttpPost]
+    public async Task<IActionResult> DownloadRvcVoice([FromBody] DownloadRvcVoiceRequest? req, CancellationToken ct)
+    {
+        if (req is null || string.IsNullOrWhiteSpace(req.Url))
+            return Json(new { ok = false, error = "A voice URL is required." });
+
+        var r = await _rvcControl.DownloadVoiceAsync(req.Url, req.IndexUrl, req.Name, ct);
+        return Json(new { ok = r.Ok, output = r.Output });
+    }
+
+    public sealed record DownloadRvcVoiceRequest(string Url, string? IndexUrl, string? Name);
+
     /// <summary>Starts the local prompt-enhancer server (detached; the model loads in the background).</summary>
     [HttpPost]
     public IActionResult StartPrompt()

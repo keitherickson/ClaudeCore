@@ -69,6 +69,15 @@
 
     <main>
         <section class="panel" id="p-backends"><h2>Backends</h2><div class="body muted">loading…</div></section>
+        <section class="panel" id="p-rvc"><h2>RVC voice download</h2>
+            <div class="body">
+                <div class="muted" style="margin-bottom:8px;">Install a target voice from a URL — a <code>.pth</code>, or a <code>.zip</code> that packs <code>.pth</code> + <code>.index</code>. HuggingFace <code>/blob/</code> links are fixed automatically. Base models (HuBERT/RMVPE) download on their own.</div>
+                <input id="rvc-url" type="text" placeholder="https://…/MyVoice.pth (or .zip)" style="width:100%;background:#3a3a3a;color:#fff;border:0;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:8px;" />
+                <input id="rvc-index-url" type="text" placeholder="optional separate .index URL" style="width:100%;background:#3a3a3a;color:#fff;border:0;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:8px;" />
+                <input id="rvc-name" type="text" placeholder="voice name (optional — derived from the URL)" style="width:100%;background:#3a3a3a;color:#fff;border:0;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:8px;" />
+                <div class="actions" style="margin-top:0;"><button class="ghost" onclick="_adminDownloadRvc()">Download voice</button></div>
+            </div>
+        </section>
         <section class="panel" id="p-model"><h2>Active model</h2><div class="body muted">loading…</div></section>
         <section class="panel" id="p-system"><h2>GPU &amp; system</h2><div class="body muted">loading…</div></section>
         <section class="panel" id="p-diag"><h2>Diagnostics</h2><div class="body muted">loading…</div></section>
@@ -203,6 +212,15 @@
         };
         window._adminCancelRun = function (id) {
             action("/Admin/CancelRun", { id: id }, "Cancel run " + id);
+        };
+        window._adminDownloadRvc = function () {
+            var url = (el("rvc-url").value || "").trim();
+            if (!url) { toast("Paste a voice URL first."); return; }
+            var indexUrl = (el("rvc-index-url").value || "").trim();
+            var name = (el("rvc-name").value || "").trim();
+            action("/Admin/DownloadRvcVoice",
+                { url: url, indexUrl: indexUrl || null, name: name || null },
+                "Download voice");
         };
 
         function renderSystem(d) {

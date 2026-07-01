@@ -112,4 +112,65 @@ public sealed class RvcServerControl
         var output = sb.ToString().Trim();
         return new RestartResult(proc.ExitCode == 0, output);
     }
+
+    /// <summary>
+    /// Installs a target voice from a URL by running tools/download-rvc-model.ps1, which places
+    /// the .pth/.index into the models dir in the layout the server expects. Returns the script's
+    /// output. The URL/name are passed as separate process args (no shell), so they can't inject.
+    /// </summary>
+    public async Task<RestartResult> DownloadVoiceAsync(string url, string? indexUrl, string? name, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return new RestartResult(false, "A voice URL is required.");
+
+        var script = _options.DownloadScriptPath;
+        if (!File.Exists(script))
+            return new RestartResult(false, $"Download script not found at {script}");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            ArgumentList =
+            {
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", script,
+                "-Url", url,
+                "-ModelsDir", _options.ModelsDir,
+                "-Force",
+            },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        if (!string.IsNullOrWhiteSpace(indexUrl)) { psi.ArgumentList.Add("-IndexUrl"); psi.ArgumentList.Add(indexUrl); }
+        if (!string.IsNullOrWhiteSpace(name)) { psi.ArgumentList.Add("-Name"); psi.ArgumentList.Add(name); }
+
+        using var proc = new Process { StartInfo = psi };
+        var sb = new System.Text.StringBuilder();
+        proc.OutputDataReceived += (_, e) => { if (e.Data is not null) sb.AppendLine(e.Data); };
+        proc.ErrorDataReceived += (_, e) => { if (e.Data is not null) sb.AppendLine(e.Data); };
+
+        _logger.LogInformation("Downloading RVC voice from {Url} into {Dir}", url, _options.ModelsDir);
+        proc.Start();
+        proc.BeginOutputReadLine();
+        proc.BeginErrorReadLine();
+
+        // Downloads (100–200 MB .pth over community CDNs) can be slow — allow well past the
+        // 5-minute conversion timeout.
+        using var cap = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cap.CancelAfter(TimeSpan.FromMinutes(20));
+        try
+        {
+            await proc.WaitForExitAsync(cap.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            return new RestartResult(false, "Download timed out after 20 minutes.\n" + sb);
+        }
+
+        var output = sb.ToString().Trim();
+        return new RestartResult(proc.ExitCode == 0, output);
+    }
 }

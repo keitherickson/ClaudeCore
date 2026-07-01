@@ -34,4 +34,7 @@ public sealed class LocalRvcOptions
 
     /// <summary>PowerShell script that stops the RVC server (Admin "Stop" button).</summary>
     public string StopScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\stop-rvc-server.ps1";
+
+    /// <summary>PowerShell script that installs a target voice from a URL (Admin "Download voice").</summary>
+    public string DownloadScriptPath { get; set; } = @"C:\ClaudeCore\ClaudeCore\tools\download-rvc-model.ps1";
 }
