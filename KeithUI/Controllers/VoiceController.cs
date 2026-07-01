@@ -4,20 +4,20 @@ using Microsoft.AspNetCore.Mvc;
 namespace KeithUI.Controllers;
 
 /// <summary>
-/// The "Voice Changer / Recorder" page: record from the mic (or upload a clip),
-/// apply a local ffmpeg voice effect, then play back, download, or send the
-/// result into the studio's input staging dir as a Load Sound source.
+/// The "Voice" page: record from the mic (or upload a clip), convert it to a target
+/// voice with the local RVC server, then play back, download, or send the result into
+/// the studio's input staging dir as a Load Sound source.
 /// </summary>
 public class VoiceController : Controller
 {
-    private readonly VoiceChangerService _voice;
+    private readonly VoiceStagingService _staging;   // stages clips + guards the input/output trees
     private readonly RvcVoiceService _rvc;    // AI voice conversion (rvc-python server)
     private readonly LtxVideoService _ltx;   // for staging the result into the studio input dir
     private readonly ILogger<VoiceController> _logger;
 
-    public VoiceController(VoiceChangerService voice, RvcVoiceService rvc, LtxVideoService ltx, ILogger<VoiceController> logger)
+    public VoiceController(VoiceStagingService staging, RvcVoiceService rvc, LtxVideoService ltx, ILogger<VoiceController> logger)
     {
-        _voice = voice;
+        _staging = staging;
         _rvc = rvc;
         _ltx = ltx;
         _logger = logger;
@@ -26,10 +26,6 @@ public class VoiceController : Controller
     [HttpGet]
     public IActionResult Index() => View();
 
-    /// <summary>The effect presets for the page's buttons.</summary>
-    [HttpGet]
-    public IActionResult Presets() => Json(_voice.Presets);
-
     /// <summary>Stages a recorded/uploaded clip and returns its path + name.</summary>
     [HttpPost]
     [RequestSizeLimit(104_857_600)] // 100 MB
@@ -37,38 +33,9 @@ public class VoiceController : Controller
     {
         if (audio is not { Length: > 0 })
             return BadRequest(new { ok = false, error = "No audio." });
-        var path = await _voice.StageInputAsync(audio, ct);
+        var path = await _staging.StageInputAsync(audio, ct);
         return Json(new { ok = true, path, name = Path.GetFileName(path) });
     }
-
-    /// <summary>Applies an effect to a staged clip; returns the produced file name + playback URL.</summary>
-    [HttpPost]
-    public async Task<IActionResult> Process([FromBody] ProcessRequest? req, CancellationToken ct)
-    {
-        if (req is null || string.IsNullOrWhiteSpace(req.Path) || string.IsNullOrWhiteSpace(req.Effect))
-            return BadRequest(new { ok = false, error = "A staged clip and an effect are required." });
-        if (!_voice.IsInputFile(req.Path))
-            return BadRequest(new { ok = false, error = "The clip is not a staged input file." });
-
-        try
-        {
-            var result = await _voice.ProcessAsync(req.Path, req.Effect, req.Pitch, ct);
-            return Json(new
-            {
-                ok = true,
-                path = result.SavedPath,
-                name = result.FileName,
-                url = Url.Action(nameof(Audio), new { path = result.SavedPath }),
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Voice effect '{Effect}' failed", req.Effect);
-            return BadRequest(new { ok = false, error = ex.Message });
-        }
-    }
-
-    public sealed record ProcessRequest(string Path, string Effect, double Pitch);
 
     /// <summary>Lists the available RVC target voices (starts the server on demand).</summary>
     [HttpGet]
@@ -92,7 +59,7 @@ public class VoiceController : Controller
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Path))
             return BadRequest(new { ok = false, error = "A staged clip is required." });
-        if (!_voice.IsInputFile(req.Path))
+        if (!_staging.IsInputFile(req.Path))
             return BadRequest(new { ok = false, error = "The clip is not a staged input file." });
 
         try
@@ -119,7 +86,7 @@ public class VoiceController : Controller
     [HttpGet]
     public IActionResult Audio(string path)
     {
-        if (!_voice.IsOutputFile(path))
+        if (!_staging.IsOutputFile(path))
             return NotFound();
         var full = Path.GetFullPath(path);
         return PhysicalFile(full, "audio/wav", Path.GetFileName(full), enableRangeProcessing: true);
@@ -134,7 +101,7 @@ public class VoiceController : Controller
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Path))
             return BadRequest(new { ok = false, error = "A produced clip is required." });
-        if (!_voice.IsOutputFile(req.Path))
+        if (!_staging.IsOutputFile(req.Path))
             return BadRequest(new { ok = false, error = "The clip is not a produced output file." });
 
         Directory.CreateDirectory(_ltx.InputDirectory);

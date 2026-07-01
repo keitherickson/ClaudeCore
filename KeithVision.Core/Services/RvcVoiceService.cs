@@ -6,9 +6,8 @@ namespace KeithVision.Services;
 
 /// <summary>
 /// AI voice conversion via the self-hosted rvc-python server: replaces the speaker's
-/// timbre with a target voice (a .pth model), so you sound like a different person —
-/// unlike the ffmpeg effects in <see cref="VoiceChangerService"/>, which only reshape
-/// your own voice. Converts the recorded/uploaded clip to WAV with ffmpeg (reusing the
+/// timbre with a target voice (a .pth model), so you sound like a different person.
+/// Converts the recorded/uploaded clip to WAV with ffmpeg (reusing the
 /// VideoSpeed ffmpeg path), then drives the RVC server: load target model → set pitch →
 /// /convert_file. Writes the result into the same output dir as the ffmpeg effects so the
 /// existing /Voice/Audio endpoint serves it. On-demand server start mirrors

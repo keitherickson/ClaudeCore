@@ -1,10 +1,10 @@
 @{
-    ViewData["Title"] = "Voice Changer";
+    ViewData["Title"] = "Voice";
 }
 
 <div class="voice-page">
-    <h1 class="mb-1">Voice Changer</h1>
-    <p class="text-muted">Record from your microphone or upload a clip, apply a local ffmpeg effect, then play, download, or send it to the studio.</p>
+    <h1 class="mb-1">Voice</h1>
+    <p class="text-muted">Record from your microphone or upload a clip, convert it to a target voice with a local RVC model, then play, download, or send it to the studio.</p>
 
     <div id="vc-status" class="alert alert-secondary py-2" role="status">Ready.</div>
 
@@ -34,26 +34,7 @@
 
         <div class="col-md-7">
             <div class="card">
-                <div class="card-header">2. Effect</div>
-                <div class="card-body">
-                    <div id="vc-presets" class="d-flex flex-wrap gap-2 mb-3">
-                        <span class="text-muted">Loading effects…</span>
-                    </div>
-
-                    <div id="vc-pitch-wrap" class="mb-3">
-                        <label for="vc-pitch" class="form-label mb-1">
-                            Pitch: <span id="vc-pitch-val">0</span> semitones
-                        </label>
-                        <input id="vc-pitch" type="range" class="form-range" min="-12" max="12" step="1" value="0" />
-                        <div class="form-text">Used by the <strong>Custom pitch</strong> effect (−12 = octave down, +12 = octave up).</div>
-                    </div>
-
-                    <button id="vc-apply" type="button" class="btn btn-primary" disabled>Apply effect</button>
-                </div>
-            </div>
-
-            <div class="card mt-3">
-                <div class="card-header">AI Voice (RVC) — sound like a different person</div>
+                <div class="card-header">2. AI Voice (RVC) — sound like a different person</div>
                 <div class="card-body">
                     <p class="text-muted small mb-2">
                         Converts your voice to a target voice using a local RVC model. Needs the RVC

@@ -1,4 +1,4 @@
-// Voice Changer page: record/upload -> stage -> apply ffmpeg effect -> play/download/send.
+// Voice page: record/upload -> stage -> RVC convert -> play/download/send.
 (function () {
     "use strict";
 
@@ -10,10 +10,6 @@
     const fileInput = $("vc-file");
     const sourceWrap = $("vc-source-wrap");
     const sourceAudio = $("vc-source");
-    const presetsEl = $("vc-presets");
-    const pitchInput = $("vc-pitch");
-    const pitchVal = $("vc-pitch-val");
-    const applyBtn = $("vc-apply");
     const resultWrap = $("vc-result-wrap");
     const resultAudio = $("vc-result");
     const downloadLink = $("vc-download");
@@ -27,7 +23,6 @@
 
     // App state.
     let stagedPath = null;     // server path of the staged source clip
-    let selectedEffect = null; // chosen preset id
     let resultPath = null;     // server path of the produced clip
     let mediaRecorder = null;
     let chunks = [];
@@ -40,7 +35,6 @@
     }
 
     function refreshApply() {
-        applyBtn.disabled = !(stagedPath && selectedEffect);
         convertBtn.disabled = !(stagedPath && voiceSelect.value);
     }
 
@@ -119,7 +113,7 @@
             const data = await resp.json();
             if (!resp.ok || !data.ok) throw new Error(data.error || "Upload failed.");
             stagedPath = data.path;
-            setStatus("Clip ready — pick an effect.", "success");
+            setStatus("Clip ready — load voices and pick a target.", "success");
             refreshApply();
         } catch (err) {
             setStatus("Upload failed: " + err.message, "danger");
@@ -132,62 +126,6 @@
         showSource(URL.createObjectURL(f));
         uploadClip(f, f.name);
     });
-
-    // --- Presets -------------------------------------------------------------
-
-    async function loadPresets() {
-        try {
-            const resp = await fetch("/Voice/Presets");
-            const presets = await resp.json();
-            presetsEl.innerHTML = "";
-            presets.forEach((p) => {
-                const btn = document.createElement("button");
-                btn.type = "button";
-                btn.className = "btn btn-outline-secondary";
-                btn.textContent = p.label;
-                btn.title = p.description;
-                btn.dataset.effect = p.id;
-                btn.addEventListener("click", () => selectEffect(p.id));
-                presetsEl.appendChild(btn);
-            });
-        } catch (err) {
-            presetsEl.innerHTML = '<span class="text-danger">Could not load effects.</span>';
-        }
-    }
-
-    function selectEffect(id) {
-        selectedEffect = id;
-        presetsEl.querySelectorAll("button").forEach((b) => {
-            const active = b.dataset.effect === id;
-            b.classList.toggle("btn-secondary", active);
-            b.classList.toggle("btn-outline-secondary", !active);
-        });
-        refreshApply();
-    }
-
-    pitchInput.addEventListener("input", () => { pitchVal.textContent = pitchInput.value; });
-
-    // --- Apply ---------------------------------------------------------------
-
-    async function applyEffect() {
-        if (!stagedPath || !selectedEffect) return;
-        applyBtn.disabled = true;
-        setStatus("Applying effect…", "info");
-        try {
-            const resp = await fetch("/Voice/Process", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: stagedPath, effect: selectedEffect, pitch: Number(pitchInput.value) }),
-            });
-            const data = await resp.json();
-            if (!resp.ok || !data.ok) throw new Error(data.error || "Processing failed.");
-            showResult(data);
-        } catch (err) {
-            setStatus("Processing failed: " + err.message, "danger");
-        } finally {
-            refreshApply();
-        }
-    }
 
     // --- AI Voice (RVC) ------------------------------------------------------
 
@@ -294,11 +232,9 @@
 
     recordBtn.addEventListener("click", startRecording);
     stopBtn.addEventListener("click", stopRecording);
-    applyBtn.addEventListener("click", applyEffect);
     sendBtn.addEventListener("click", sendToStudio);
     loadVoicesBtn.addEventListener("click", loadVoices);
     convertBtn.addEventListener("click", convertVoice);
 
-    loadPresets();
     applyRecordingSupport();
 })();

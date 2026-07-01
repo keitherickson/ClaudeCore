@@ -93,9 +93,10 @@ public static class ServiceCollectionExtensions
         services.Configure<VideoSpeedOptions>(configuration.GetSection(VideoSpeedOptions.SectionName));
         services.AddScoped<VideoSpeedService>();
 
-        // "Voice changer" page: applies local ffmpeg audio-filter effects to a recorded or
-        // uploaded clip. Reuses the VideoSpeed options (ffmpeg path, staging/output dirs).
-        services.AddScoped<VoiceChangerService>();
+        // /Voice page file plumbing: stages recorded/uploaded clips and guards the input/
+        // output trees. Reuses the VideoSpeed options (staging/output dirs). The conversion
+        // itself is RvcVoiceService below.
+        services.AddScoped<VoiceStagingService>();
 
         // Self-hosted Stable Audio Open generative sound effects: a local Python server
         // (tools/run-audio-server.ps1) that KeithVision calls over HTTP — no API key and no
