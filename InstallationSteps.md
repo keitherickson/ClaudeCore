@@ -244,6 +244,8 @@ A local operations page (nav link **Admin**) showing the health of each moving p
 
 - **SeedVR2 upscaling** — paused (Blackwell + ~80 GB VRAM blockers on the official repo). Links if revisited: source [ByteDance-Seed/SeedVR](https://github.com/ByteDance-Seed/SeedVR), weights [ByteDance-Seed/SeedVR2-3B](https://huggingface.co/ByteDance-Seed/SeedVR2-3B). Maxine (section 4) chosen instead.
 
+- **Voice generation (TTS) — get back to this ⏸️**: add spoken-voice / narration generation as a sibling to the existing **Generate Sound** node (which uses `stabilityai/stable-audio-open-1.0` for music/SFX, *not* speech). Intended shape, mirroring the audio setup: a small FastAPI backend like `tools/audio_server.py` (own venv, GPU-resident, `/health` + `/generate`) fronted by an `AudioServerControl`-style service and a new studio node (e.g. "Generate Voice" / "Narrate") that emits an audio file edge feeding **Add Audio**. Model not yet chosen — candidates evaluated: **Chatterbox**, **F5-TTS**, **Kokoro**, **XTTS-v2 (Coqui)**, **VibeVoice**. Next step: pick one (voice-cloning vs. plain read-a-script decides it) and validate it standalone before wiring in. *(Note added 2026-07-01 — the original decision was lost when a prior session didn't persist it.)*
+
 ---
 
 ## 7. R&D log: LTX-2 NVFP4 via ComfyUI ✅ (outcome shipped — see §8)
