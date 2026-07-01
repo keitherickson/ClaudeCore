@@ -91,6 +91,10 @@ public class AdminController : Controller
         var (rvcOk, rvcErr) = await _rvc.GetHealthAsync(ct);
         var rvc = new { reachable = rvcOk, portListening = _rvcControl.IsPortListening(), port = _rvcControl.Port, error = rvcErr };
 
+        // --- RVC voice download (background job; null-ish when never run) ---
+        var dl = _rvcControl.GetDownloadStatus();
+        var rvcDownload = new { active = dl.Active, ok = dl.Ok, name = dl.Name, url = dl.Url, startedUtc = dl.StartedUtc, finishedUtc = dl.FinishedUtc, output = dl.Output };
+
         // --- ComfyUI server (NVFP4 / Wan / AI-upscale share it) ---
         var comfy = new { portListening = _comfyControl.IsPortListening(), port = _comfyControl.Port, gpuIndex = _comfyControl.GpuIndex };
 
@@ -125,6 +129,7 @@ public class AdminController : Controller
             audio,
             music,
             rvc,
+            rvcDownload,
             comfy,
             prompt,
             maxine = new { ready = maxineReady, error = maxineProblem },
@@ -280,15 +285,15 @@ public class AdminController : Controller
         return Json(new { ok = r.Ok, output = r.Output });
     }
 
-    /// <summary>Installs an RVC target voice from a URL into the models dir. Returns the script output.</summary>
+    /// <summary>Starts a background RVC voice download from a URL; returns immediately (poll status).</summary>
     [HttpPost]
-    public async Task<IActionResult> DownloadRvcVoice([FromBody] DownloadRvcVoiceRequest? req, CancellationToken ct)
+    public IActionResult DownloadRvcVoice([FromBody] DownloadRvcVoiceRequest? req)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.Url))
             return Json(new { ok = false, error = "A voice URL is required." });
 
-        var r = await _rvcControl.DownloadVoiceAsync(req.Url, req.IndexUrl, req.Name, ct);
-        return Json(new { ok = r.Ok, output = r.Output });
+        var (started, error) = _rvcControl.StartVoiceDownload(req.Url, req.IndexUrl, req.Name);
+        return Json(new { ok = started, error });
     }
 
     public sealed record DownloadRvcVoiceRequest(string Url, string? IndexUrl, string? Name);

@@ -76,6 +76,7 @@
                 <input id="rvc-index-url" type="text" placeholder="optional separate .index URL" style="width:100%;background:#3a3a3a;color:#fff;border:0;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:8px;" />
                 <input id="rvc-name" type="text" placeholder="voice name (optional — derived from the URL)" style="width:100%;background:#3a3a3a;color:#fff;border:0;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:8px;" />
                 <div class="actions" style="margin-top:0;"><button class="ghost" onclick="_adminDownloadRvc()">Download voice</button></div>
+                <div id="rvc-dl-status" style="margin-top:10px;"></div>
             </div>
         </section>
         <section class="panel" id="p-model"><h2>Active model</h2><div class="body muted">loading…</div></section>
@@ -220,8 +221,28 @@
             var name = (el("rvc-name").value || "").trim();
             action("/Admin/DownloadRvcVoice",
                 { url: url, indexUrl: indexUrl || null, name: name || null },
-                "Download voice");
+                "Start voice download");
         };
+
+        // The download runs in the background on the server; this reflects its state on each poll.
+        // Only touches #rvc-dl-status, never the input fields (which live in static markup).
+        function renderRvcDownload(d) {
+            var s = el("rvc-dl-status"); if (!s) return;
+            var j = d.rvcDownload;
+            if (!j || (!j.active && !j.startedUtc)) { s.innerHTML = ""; return; }
+            var who = esc(j.name || j.url || "");
+            if (j.active) {
+                s.innerHTML = '<div class="gen">⏳ downloading <b>' + who + '</b> · ' + ageOf(j.startedUtc) + '</div>';
+            } else if (j.ok) {
+                s.innerHTML = '<div class="row"><span class="dot up"></span><span class="k">installed</span>'
+                    + '<span class="v">' + who + '</span></div>'
+                    + (j.output ? '<div class="muted" style="white-space:pre-wrap;margin-top:4px;">' + esc(j.output) + '</div>' : '');
+            } else {
+                s.innerHTML = '<div class="row"><span class="dot down"></span><span class="k">download failed</span>'
+                    + '<span class="v">' + who + '</span></div>'
+                    + (j.output ? '<div class="err" style="white-space:pre-wrap;margin-top:4px;">' + esc(j.output) + '</div>' : '');
+            }
+        }
 
         function renderSystem(d) {
             var g = d.gpu || {}, c = d.cpu || {}, m = d.memory || {};
@@ -353,6 +374,7 @@
             try {
                 var d = await (await fetch("/Admin/Status")).json();
                 renderBackends(d); renderModel(d); renderSystem(d);
+                renderRvcDownload(d);
                 renderDiag(d); renderStorage(d); renderLayouts(d);
                 el("updated").textContent = "updated " + new Date().toLocaleTimeString();
             } catch (e) {

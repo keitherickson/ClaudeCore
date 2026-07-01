@@ -113,16 +113,58 @@ public sealed class RvcServerControl
         return new RestartResult(proc.ExitCode == 0, output);
     }
 
+    // A voice download can take minutes (100–200 MB weights), so it runs as a background job
+    // instead of blocking the request. Only one at a time; the Admin page polls GetDownloadStatus.
+    private readonly object _dlLock = new();
+    private Task? _dlTask;
+    private RvcDownloadState _dlState = RvcDownloadState.Idle;
+
     /// <summary>
-    /// Installs a target voice from a URL by running tools/download-rvc-model.ps1, which places
-    /// the .pth/.index into the models dir in the layout the server expects. Returns the script's
-    /// output. The URL/name are passed as separate process args (no shell), so they can't inject.
+    /// Kicks off a target-voice download in the background (via tools/download-rvc-model.ps1) and
+    /// returns immediately. The Admin page polls <see cref="GetDownloadStatus"/> for progress/result.
+    /// Refuses to start a second download while one is running.
     /// </summary>
-    public async Task<RestartResult> DownloadVoiceAsync(string url, string? indexUrl, string? name, CancellationToken ct = default)
+    public (bool Started, string? Error) StartVoiceDownload(string url, string? indexUrl, string? name)
     {
         if (string.IsNullOrWhiteSpace(url))
-            return new RestartResult(false, "A voice URL is required.");
+            return (false, "A voice URL is required.");
 
+        var script = _options.DownloadScriptPath;
+        if (!File.Exists(script))
+            return (false, $"Download script not found at {script}");
+
+        lock (_dlLock)
+        {
+            if (_dlTask is { IsCompleted: false })
+                return (false, "A voice download is already in progress.");
+
+            var label = string.IsNullOrWhiteSpace(name) ? url : name!;
+            _dlState = new RvcDownloadState(true, null, label, url, DateTime.UtcNow, null, "");
+            _dlTask = Task.Run(async () =>
+            {
+                RestartResult r;
+                try { r = await RunDownloadProcessAsync(url, indexUrl, name); }
+                catch (Exception ex) { r = new RestartResult(false, ex.Message); }
+                lock (_dlLock)
+                    _dlState = _dlState with { Active = false, Ok = r.Ok, FinishedUtc = DateTime.UtcNow, Output = r.Output };
+            });
+        }
+        return (true, null);
+    }
+
+    /// <summary>Snapshot of the current/last voice download for the Admin status poll.</summary>
+    public RvcDownloadState GetDownloadStatus()
+    {
+        lock (_dlLock) return _dlState;
+    }
+
+    /// <summary>
+    /// Runs tools/download-rvc-model.ps1, which places the .pth/.index into the models dir in the
+    /// layout the server expects, and returns the script's output. The URL/name are passed as
+    /// separate process args (no shell), so they can't inject.
+    /// </summary>
+    private async Task<RestartResult> RunDownloadProcessAsync(string url, string? indexUrl, string? name)
+    {
         var script = _options.DownloadScriptPath;
         if (!File.Exists(script))
             return new RestartResult(false, $"Download script not found at {script}");
@@ -158,8 +200,7 @@ public sealed class RvcServerControl
 
         // Downloads (100–200 MB .pth over community CDNs) can be slow — allow well past the
         // 5-minute conversion timeout.
-        using var cap = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cap.CancelAfter(TimeSpan.FromMinutes(20));
+        using var cap = new CancellationTokenSource(TimeSpan.FromMinutes(20));
         try
         {
             await proc.WaitForExitAsync(cap.Token);
@@ -173,4 +214,12 @@ public sealed class RvcServerControl
         var output = sb.ToString().Trim();
         return new RestartResult(proc.ExitCode == 0, output);
     }
+}
+
+/// <summary>State of the current/last background voice download (for the Admin status poll).</summary>
+public sealed record RvcDownloadState(
+    bool Active, bool? Ok, string? Name, string? Url,
+    DateTime? StartedUtc, DateTime? FinishedUtc, string Output)
+{
+    public static readonly RvcDownloadState Idle = new(false, null, null, null, null, null, "");
 }
