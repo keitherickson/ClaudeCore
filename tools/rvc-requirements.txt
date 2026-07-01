@@ -24,5 +24,9 @@
 # Community voices: https://weights.gg  and  https://voice-models.com  (download the .pth/.index).
 # The server lists them at GET /models; the Voice page's "Load voices" button shows them.
 #
+# Shortcut — install one straight from a URL (handles the folder layout, zips, and HF /blob/ links):
+#   powershell -ExecutionPolicy Bypass -File tools\download-rvc-model.ps1 -Url "https://.../MyVoice.pth" -Name MyVoice
+#   (add -IndexUrl "https://.../MyVoice.index" for better timbre, or pass a .zip URL that packs both)
+#
 # Start the server:  powershell -ExecutionPolicy Bypass -File tools\run-rvc-server.ps1
 # (Admin page Start/Stop also drive it. Port 8773 must match LocalRvc:BaseUrl in appsettings.json.)
